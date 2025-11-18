@@ -1,10 +1,11 @@
 import React from "react";
 import { useDroppable } from "@dnd-kit/core";
 
-export function Droppable(props) {
-  const { id } = props;
+function WorkSpace(props) {
+  const { id, globalType, data } = props;
   const { isOver, setNodeRef, ...rest } = useDroppable({
-    id,
+    id: id,
+    data,
   });
   // console.log(isOver );
   // console.log();
@@ -20,3 +21,4 @@ export function Droppable(props) {
     </div>
   );
 }
+export default WorkSpace;
