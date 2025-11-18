@@ -1,8 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
-
-// Spreadsheet component (read-only cells)
-// - Data keyed by 'row,col'
-// - Meta tracks merged origins and covered cells
+import { Input } from 'antd';
+import { Checkbox } from "antd";
 
 function coordKey(row, col) {
   return `${row},${col}`;
@@ -17,15 +15,13 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
   const [rowCount, setRowCount] = useState(rows);
   const [colCount, setColCount] = useState(cols);
 
-  const [data, setData] = useState({}); // { 'row,col': string }
-  const [meta, setMeta] = useState({}); // { 'row,col': { origin } | { rowSpan, colSpan } }
+  const [data, setData] = useState({ "0,0": <Input />, "0,1": <Checkbox /> });
+  const [meta, setMeta] = useState({});
 
-  // selection: { startRow, startCol, endRow, endCol }
   const [selection, setSelection] = useState(null);
   const selecting = useRef(false);
   const anchor = useRef(null);
 
-  // normalize two points into a selection rectangle
   function normalizeSel(a, b) {
     const startRow = Math.min(a.row, b.row);
     const endRow = Math.max(a.row, b.row);
@@ -42,7 +38,6 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
     return cellKey;
   }
 
-  // selection mouse handlers
   function onCellMouseDown(e, row, col) {
     selecting.current = true;
     anchor.current = { row, col };
@@ -75,7 +70,7 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
     }
   }
 
-  // Merge selection into an origin cell
+  // 合并选中区域：内容整合到起始单元格，保存原始映射
   function mergeSelection() {
     if (!selection) return;
     const { startRow, startCol, endRow, endCol } = selection;
@@ -83,7 +78,7 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
     const colSpan = endCol - startCol + 1;
     if (rowSpan === 1 && colSpan === 1) return;
 
-    // Validate there are no partial overlaps with existing merges
+    // 验证合并区域
     for (let r = startRow; r <= endRow; r++) {
       for (let c = startCol; c <= endCol; c++) {
         const key = coordKey(r, c);
@@ -95,72 +90,123 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
             originCoord.row > endRow ||
             originCoord.col < startCol ||
             originCoord.col > endCol
-          ) return alert("Cannot merge: selection includes part of an existing merged area");
+          )
+            return alert("无法合并：包含部分已合并区域");
         }
         if (cellMeta && (cellMeta.rowSpan || cellMeta.colSpan)) {
-          const originRow = r;
-          const originCol = c;
-          const originRowSpan = cellMeta.rowSpan || 1;
-          const originColSpan = cellMeta.colSpan || 1;
-          const originRowEnd = originRow + originRowSpan - 1;
-          const originColEnd = originCol + originColSpan - 1;
+          const originRowEnd = r + (cellMeta.rowSpan || 1) - 1;
+          const originColEnd = c + (cellMeta.colSpan || 1) - 1;
           if (
-            originRow < startRow ||
+            r < startRow ||
             originRowEnd > endRow ||
-            originCol < startCol ||
+            c < startCol ||
             originColEnd > endCol
-          ) return alert("Cannot merge: selection includes part of an existing merged area");
+          )
+            return alert("无法合并：包含部分已合并区域");
         }
       }
     }
 
     const originKey = coordKey(startRow, startCol);
+    
+    // 收集原始内容映射和合并内容
+    const originalContents = {};
+    const mergedContentList = [];
+    for (let r = startRow; r <= endRow; r++) {
+      for (let c = startCol; c <= endCol; c++) {
+        const key = coordKey(r, c);
+        const content = data[key];
+        originalContents[key] = content; // 保存原始位置-内容映射
+        if (content !== undefined) mergedContentList.push(content);
+      }
+    }
+
+    // 更新元数据
     setMeta((prev) => {
       const next = { ...prev };
-      next[originKey] = { rowSpan, colSpan };
+      next[originKey] = { 
+        rowSpan, 
+        colSpan,
+        originalContents // 存储原始内容映射
+      };
+      
+      // 标记被合并单元格的起源
       for (let r = startRow; r <= endRow; r++) {
         for (let c = startCol; c <= endCol; c++) {
           const k = coordKey(r, c);
-          if (k === originKey) continue;
-          next[k] = { origin: originKey };
+          if (k !== originKey) next[k] = { origin: originKey };
         }
       }
       return next;
     });
+
+    // 更新数据：起始单元格整合内容，删除其他单元格数据
+    setData((prev) => {
+      const next = { ...prev };
+      next[originKey] = mergedContentList.length > 0 ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {mergedContentList.map((content, index) => (
+            <div key={index}>{content}</div>
+          ))}
+        </div>
+      ) : "";
+      
+      // 删除被合并单元格数据
+      for (let r = startRow; r <= endRow; r++) {
+        for (let c = startCol; c <= endCol; c++) {
+          const k = coordKey(r, c);
+          if (k !== originKey) delete next[k];
+        }
+      }
+      
+      return next;
+    });
   }
 
-  // Split merged cells found in selection
+  // 拆分合并单元格：还原原始内容到各自位置
   function splitSelection() {
     if (!selection) return;
     const { startRow, startCol, endRow, endCol } = selection;
     const toSplit = [];
 
+    // 找到需要拆分的合并单元格
     for (let r = startRow; r <= endRow; r++) {
       for (let c = startCol; c <= endCol; c++) {
         const key = coordKey(r, c);
         const cellMeta = meta[key];
         if (cellMeta && (cellMeta.rowSpan || cellMeta.colSpan)) {
-          toSplit.push({ row: r, col: c, key, rowSpan: cellMeta.rowSpan, colSpan: cellMeta.colSpan });
+          toSplit.push({
+            ...parseKey(key),
+            key,
+            rowSpan: cellMeta.rowSpan,
+            colSpan: cellMeta.colSpan,
+            originalContents: cellMeta.originalContents
+          });
         }
       }
     }
 
-    if (toSplit.length === 0) {
-      if (startRow === endRow && startCol === endCol) {
-        const key = coordKey(startRow, startCol);
-        const cellMeta = meta[key];
-        if (cellMeta && cellMeta.origin) {
-          const originKey = cellMeta.origin;
-          const originMeta = meta[originKey];
-          if (originMeta && (originMeta.rowSpan || originMeta.colSpan)) {
-            toSplit.push({ key: originKey, ...parseKey(originKey), rowSpan: originMeta.rowSpan, colSpan: originMeta.colSpan });
-          }
+    // 处理单个单元格属于合并区域的情况
+    if (toSplit.length === 0 && startRow === endRow && startCol === endCol) {
+      const key = coordKey(startRow, startCol);
+      const cellMeta = meta[key];
+      if (cellMeta && cellMeta.origin) {
+        const originMeta = meta[cellMeta.origin];
+        if (originMeta && (originMeta.rowSpan || originMeta.colSpan)) {
+          toSplit.push({
+            key: cellMeta.origin,
+            ...parseKey(cellMeta.origin),
+            rowSpan: originMeta.rowSpan,
+            colSpan: originMeta.colSpan,
+            originalContents: originMeta.originalContents
+          });
         }
       }
     }
 
     if (toSplit.length === 0) return;
 
+    // 清除合并元数据
     setMeta((prev) => {
       const next = { ...prev };
       toSplit.forEach((entry) => {
@@ -169,15 +215,34 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
         for (let r2 = row; r2 < row + rowSpan; r2++) {
           for (let c2 = col; c2 < col + colSpan; c2++) {
             const coveredKey = coordKey(r2, c2);
-            if (next[coveredKey] && next[coveredKey].origin === key) delete next[coveredKey];
+            if (next[coveredKey] && next[coveredKey].origin === key) {
+              delete next[coveredKey];
+            }
           }
+        }
+      });
+      return next;
+    });
+
+    // 还原原始内容
+    setData((prev) => {
+      const next = { ...prev };
+      toSplit.forEach((entry) => {
+        const { key, originalContents } = entry;
+        delete next[key]; // 删除合并后的整合内容
+        
+        // 按原始映射还原内容
+        if (originalContents) {
+          Object.entries(originalContents).forEach(([cellKey, content]) => {
+            next[cellKey] = content;
+          });
         }
       });
       return next;
     });
   }
 
-  // Insert/Delete rows/cols (handle shifting meta/data)
+  // 插入行
   function insertRow(at) {
     if (at < 0) at = 0;
     if (at > rowCount) at = rowCount;
@@ -185,26 +250,33 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
     const newData = {};
     const newMeta = {};
 
-    // collect origin entries
     const origins = [];
     Object.keys(meta).forEach((metaKey) => {
       const entry = meta[metaKey];
       const parsed = parseKey(metaKey);
-      if (entry && (entry.rowSpan || entry.colSpan)) origins.push({ row: parsed.row, col: parsed.col, rowSpan: entry.rowSpan || 1, colSpan: entry.colSpan || 1, key: metaKey });
+      if (entry && (entry.rowSpan || entry.colSpan)) {
+        origins.push({
+          row: parsed.row,
+          col: parsed.col,
+          rowSpan: entry.rowSpan || 1,
+          colSpan: entry.colSpan || 1,
+          originalContents: entry.originalContents,
+          key: metaKey,
+        });
+      }
     });
 
-    // relocate origins
     origins.forEach((origin) => {
-      let { row: originRow, col: originCol, rowSpan: rs, colSpan: cs } = origin;
+      let { row: originRow, col: originCol, rowSpan: rs, colSpan: cs, originalContents } = origin;
       const newOriginRow = originRow >= at ? originRow + 1 : originRow;
-      if (originRow < at && originRow + rs - 1 >= at) rs = rs + 1;
+      if (originRow < at && originRow + rs - 1 >= at) rs += 1;
       const newKey = coordKey(newOriginRow, originCol);
-      newMeta[newKey] = { rowSpan: rs, colSpan: cs };
+      newMeta[newKey] = { rowSpan: rs, colSpan: cs, originalContents };
+      
       const oldDataKey = coordKey(originRow, originCol);
       if (data[oldDataKey] !== undefined) newData[newKey] = data[oldDataKey];
     });
 
-    // set covered cells for new origins
     Object.keys(newMeta).forEach((originKey) => {
       const originMeta = newMeta[originKey];
       const parsedOrigin = parseKey(originKey);
@@ -217,19 +289,17 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
       }
     });
 
-    // move data cells
     Object.keys(data).forEach((dataKey) => {
       const parsed = parseKey(dataKey);
       const row = parsed.row;
       const col = parsed.col;
-      const maybeOrigin = origins.find((o) => o.row === row && o.col === col);
-      if (maybeOrigin) return;
+      const isOrigin = origins.some(o => o.row === row && o.col === col);
+      if (isOrigin) return;
       const newR = row >= at ? row + 1 : row;
       const newK = coordKey(newR, col);
       if (newData[newK] === undefined) newData[newK] = data[dataKey];
     });
 
-    // copy covered meta refs
     Object.keys(meta).forEach((metaKey) => {
       const parsed = parseKey(metaKey);
       const row = parsed.row;
@@ -238,25 +308,25 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
       if (cellMeta && cellMeta.origin) {
         const originParsed = parseKey(cellMeta.origin);
         const originNewR = originParsed.row >= at ? originParsed.row + 1 : originParsed.row;
-        const originNewKey = coordKey(originNewR, originParsed.col);
         const newR = row >= at ? row + 1 : row;
         const newK = coordKey(newR, col);
-        if (!newMeta[newK]) newMeta[newK] = { origin: originNewKey };
+        if (!newMeta[newK]) newMeta[newK] = { origin: coordKey(originNewR, originParsed.col) };
       }
     });
 
     setData(newData);
     setMeta(newMeta);
-    setRowCount((prev) => prev + 1);
+    setRowCount(prev => prev + 1);
 
     if (selection) {
-      const { startRow, endRow, startCol, endCol } = selection;
-      const nsr = startRow >= at ? startRow + 1 : startRow;
-      const ner = endRow >= at ? endRow + 1 : endRow;
-      setSelection({ startRow: nsr, endRow: ner, startCol, endCol });
+      const { startRow: sr, endRow: er, startCol, endCol } = selection;
+      const newSr = sr >= at ? sr + 1 : sr;
+      const newEr = er >= at ? er + 1 : er;
+      setSelection({ startRow: newSr, endRow: newEr, startCol, endCol });
     }
   }
 
+  // 插入列
   function insertCol(at) {
     if (at < 0) at = 0;
     if (at > colCount) at = colCount;
@@ -268,15 +338,25 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
     Object.keys(meta).forEach((metaKey) => {
       const entry = meta[metaKey];
       const parsed = parseKey(metaKey);
-      if (entry && (entry.rowSpan || entry.colSpan)) origins.push({ row: parsed.row, col: parsed.col, rowSpan: entry.rowSpan || 1, colSpan: entry.colSpan || 1, key: metaKey });
+      if (entry && (entry.rowSpan || entry.colSpan)) {
+        origins.push({
+          row: parsed.row,
+          col: parsed.col,
+          rowSpan: entry.rowSpan || 1,
+          colSpan: entry.colSpan || 1,
+          originalContents: entry.originalContents,
+          key: metaKey,
+        });
+      }
     });
 
     origins.forEach((origin) => {
-      let { row: originRow, col: originCol, rowSpan: rs, colSpan: cs } = origin;
+      let { row: originRow, col: originCol, rowSpan: rs, colSpan: cs, originalContents } = origin;
       const newOriginCol = originCol >= at ? originCol + 1 : originCol;
-      if (originCol < at && originCol + cs - 1 >= at) cs = cs + 1;
+      if (originCol < at && originCol + cs - 1 >= at) cs += 1;
       const newKey = coordKey(originRow, newOriginCol);
-      newMeta[newKey] = { rowSpan: rs, colSpan: cs };
+      newMeta[newKey] = { rowSpan: rs, colSpan: cs, originalContents };
+      
       const oldDataKey = coordKey(originRow, originCol);
       if (data[oldDataKey] !== undefined) newData[newKey] = data[oldDataKey];
     });
@@ -297,8 +377,8 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
       const parsed = parseKey(dataKey);
       const row = parsed.row;
       const col = parsed.col;
-      const maybeOrigin = origins.find((o) => o.row === row && o.col === col);
-      if (maybeOrigin) return;
+      const isOrigin = origins.some(o => o.row === row && o.col === col);
+      if (isOrigin) return;
       const newC = col >= at ? col + 1 : col;
       const newK = coordKey(row, newC);
       if (newData[newK] === undefined) newData[newK] = data[dataKey];
@@ -314,22 +394,23 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
         const originNewC = originParsed.col >= at ? originParsed.col + 1 : originParsed.col;
         const newC = col >= at ? col + 1 : col;
         const newK = coordKey(row, newC);
-        if (!newMeta[newK]) newMeta[newK] = { origin: originNewC };
+        if (!newMeta[newK]) newMeta[newK] = { origin: coordKey(originParsed.row, originNewC) };
       }
     });
 
     setData(newData);
     setMeta(newMeta);
-    setColCount((prev) => prev + 1);
+    setColCount(prev => prev + 1);
 
     if (selection) {
-      const { startRow, endRow, startCol, endCol } = selection;
-      const nsc = startCol >= at ? startCol + 1 : startCol;
-      const nec = endCol >= at ? endCol + 1 : endCol;
-      setSelection({ startRow, endRow, startCol: nsc, endCol: nec });
+      const { startRow, endRow, startCol: sc, endCol: ec } = selection;
+      const newSc = sc >= at ? sc + 1 : sc;
+      const newEc = ec >= at ? ec + 1 : ec;
+      setSelection({ startRow, endRow, startCol: newSc, endCol: newEc });
     }
   }
 
+  // 删除行
   function deleteRow(at) {
     if (rowCount <= 1) return;
     if (at < 0) at = 0;
@@ -346,7 +427,8 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
           for (let r2 = parsed.row; r2 < parsed.row + rs; r2++) {
             for (let c2 = parsed.col; c2 < parsed.col + (metaEntry.colSpan || 1); c2++) {
               const kk = coordKey(r2, c2);
-              if (clearedMeta[kk] && clearedMeta[kk].origin === metaKey) delete clearedMeta[kk];
+              if (clearedMeta[kk] && clearedMeta[kk].origin === metaKey)
+                delete clearedMeta[kk];
             }
           }
         }
@@ -385,17 +467,18 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
 
     setData(newData);
     setMeta(newMeta);
-    setRowCount((prev) => prev - 1);
+    setRowCount(prev => prev - 1);
 
     if (selection) {
-      let { startRow, endRow, startCol, endCol } = selection;
-      if (startRow > at) startRow = startRow - 1;
-      if (endRow > at) endRow = endRow - 1;
-      if (startRow > endRow) startRow = endRow;
-      setSelection({ startRow, endRow, startCol, endCol });
+      let { startRow: sr, endRow: er, startCol, endCol } = selection;
+      if (sr > at) sr -= 1;
+      if (er > at) er -= 1;
+      if (sr > er) sr = er;
+      setSelection({ startRow: sr, endRow: er, startCol, endCol });
     }
   }
 
+  // 删除列
   function deleteCol(at) {
     if (colCount <= 1) return;
     if (at < 0) at = 0;
@@ -412,7 +495,8 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
           for (let r2 = parsed.row; r2 < parsed.row + (metaEntry.rowSpan || 1); r2++) {
             for (let c2 = parsed.col; c2 < parsed.col + cs; c2++) {
               const kk = coordKey(r2, c2);
-              if (clearedMeta[kk] && clearedMeta[kk].origin === metaKey) delete clearedMeta[kk];
+              if (clearedMeta[kk] && clearedMeta[kk].origin === metaKey)
+                delete clearedMeta[kk];
             }
           }
         }
@@ -449,18 +533,18 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
 
     setData(newData);
     setMeta(newMeta);
-    setColCount((prev) => prev - 1);
+    setColCount(prev => prev - 1);
 
     if (selection) {
-      let { startRow, endRow, startCol, endCol } = selection;
-      if (startCol > at) startCol = startCol - 1;
-      if (endCol > at) endCol = endCol - 1;
-      if (startCol > endCol) startCol = endCol;
-      setSelection({ startRow, endRow, startCol, endCol });
+      let { startRow, endRow, startCol: sc, endCol: ec } = selection;
+      if (sc > at) sc -= 1;
+      if (ec > at) ec -= 1;
+      if (sc > ec) sc = ec;
+      setSelection({ startRow, endRow, startCol: sc, endCol: ec });
     }
   }
 
-  // toolbar helpers
+  // 工具栏辅助函数
   function deleteRowAtSelection() {
     if (!selection) return;
     deleteRow(selection.startRow);
@@ -487,17 +571,16 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
     insertCol(selection.endCol + 1);
   }
 
-  // render a single cell
+  // 渲染单元格
   function renderCell(row, col) {
     const cellKey = coordKey(row, col);
     const cellMeta = meta[cellKey];
     if (cellMeta && cellMeta.origin) return null;
 
-    const spanRow = cellMeta && cellMeta.rowSpan ? cellMeta.rowSpan : 1;
-    const spanCol = cellMeta && cellMeta.colSpan ? cellMeta.colSpan : 1;
+    const spanRow = cellMeta?.rowSpan || 1;
+    const spanCol = cellMeta?.colSpan || 1;
 
-    const isSelected =
-      selection &&
+    const isSelected = selection &&
       row >= selection.startRow &&
       row <= selection.endRow &&
       col >= selection.startCol &&
@@ -523,14 +606,14 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
           background: isSelected ? "#d0e7ff" : "white",
         }}
       >
-        <div style={{ width: "100%", height: "100%", outline: "none", userSelect: "text" }}>
+        <div style={{ width: "100%", height: "100%", outline: "none" }}>
           {value}
         </div>
       </td>
     );
   }
 
-  // build rows
+  // 构建表格行
   const rowsElems = [];
   for (let row = 0; row < rowCount; row++) {
     const tds = [];
@@ -576,7 +659,10 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
         </button>
 
         <span style={{ marginLeft: 12, color: "#666" }}>
-          Selection: {selection ? `${selection.startRow},${selection.startCol} → ${selection.endRow},${selection.endCol}` : 'none'}
+          Selection:{" "}
+          {selection
+            ? `${selection.startRow},${selection.startCol} → ${selection.endRow},${selection.endCol}`
+            : "none"}
         </span>
       </div>
 
@@ -587,7 +673,7 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
       </div>
 
       <div style={{ marginTop: 8, color: "#888", fontSize: 12 }}>
-        Tip: drag to select, or click/click+shift. Use the toolbar to merge/split, or insert/delete rows/columns relative to the selection.
+        Tip: 拖拽选择区域，使用工具栏合并/拆分单元格，或插入/删除行列
       </div>
     </div>
   );
