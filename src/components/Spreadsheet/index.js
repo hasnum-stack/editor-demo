@@ -70,95 +70,167 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
     }
   }
 
-  // 合并选中区域：内容整合到起始单元格，保存原始映射
+  // Merge selection into an origin cell
   function mergeSelection() {
     if (!selection) return;
-    const { startRow, startCol, endRow, endCol } = selection;
+
+    // start from current selection
+    let { startRow, startCol, endRow, endCol } = selection;
+    const initial = { startRow, startCol, endRow, endCol };
+
+    // Iteratively expand selection to fully include any origin that intersects it.
+    for (let iter = 0; iter < 20; iter++) {
+      let expanded = false;
+
+      // scan all origin entries in meta (entries with rowSpan/colSpan)
+      Object.keys(meta).forEach((metaKey) => {
+        const entry = meta[metaKey];
+        if (!entry) return;
+        if (!(entry.rowSpan || entry.colSpan)) return; // not an origin
+
+        const p = parseKey(metaKey);
+        const oR = p.row;
+        const oC = p.col;
+        const oREnd = oR + (entry.rowSpan || 1) - 1;
+        const oCEnd = oC + (entry.colSpan || 1) - 1;
+
+        // intersects current selection?
+        const intersects = !(oREnd < startRow || oR > endRow || oCEnd < startCol || oC > endCol);
+        if (!intersects) return;
+
+        // expand bounds to fully include the origin rect
+        if (oR < startRow) { startRow = oR; expanded = true; }
+        if (oC < startCol) { startCol = oC; expanded = true; }
+        if (oREnd > endRow) { endRow = oREnd; expanded = true; }
+        if (oCEnd > endCol) { endCol = oCEnd; expanded = true; }
+      });
+
+      if (!expanded) break;
+    }
+
+    // If selection expanded, update visible selection so user sees it
+    if (
+      startRow !== initial.startRow ||
+      startCol !== initial.startCol ||
+      endRow !== initial.endRow ||
+      endCol !== initial.endCol
+    ) {
+      setSelection({ startRow, startCol, endRow, endCol });
+    }
+
     const rowSpan = endRow - startRow + 1;
     const colSpan = endCol - startCol + 1;
     if (rowSpan === 1 && colSpan === 1) return;
 
-    // 验证合并区域
+    // Collect all origin keys whose origin rectangles are fully inside the (possibly expanded) selection
+    const originsToMerge = new Set();
+    Object.keys(meta).forEach((metaKey) => {
+      const entry = meta[metaKey];
+      if (!entry || !(entry.rowSpan || entry.colSpan)) return;
+      const p = parseKey(metaKey);
+      const oR = p.row;
+      const oC = p.col;
+      const oREnd = oR + (entry.rowSpan || 1) - 1;
+      const oCEnd = oC + (entry.colSpan || 1) - 1;
+      const fullyInside = oR >= startRow && oREnd <= endRow && oC >= startCol && oCEnd <= endCol;
+      if (fullyInside) originsToMerge.add(metaKey);
+    });
+
+    // Also include any origins referenced by covered cells inside the selection (defensive)
     for (let r = startRow; r <= endRow; r++) {
       for (let c = startCol; c <= endCol; c++) {
-        const key = coordKey(r, c);
-        const cellMeta = meta[key];
-        if (cellMeta && cellMeta.origin) {
-          const originCoord = parseKey(cellMeta.origin);
-          if (
-            originCoord.row < startRow ||
-            originCoord.row > endRow ||
-            originCoord.col < startCol ||
-            originCoord.col > endCol
-          )
-            return alert("无法合并：包含部分已合并区域");
-        }
-        if (cellMeta && (cellMeta.rowSpan || cellMeta.colSpan)) {
-          const originRowEnd = r + (cellMeta.rowSpan || 1) - 1;
-          const originColEnd = c + (cellMeta.colSpan || 1) - 1;
-          if (
-            r < startRow ||
-            originRowEnd > endRow ||
-            c < startCol ||
-            originColEnd > endCol
-          )
-            return alert("无法合并：包含部分已合并区域");
-        }
+        const ck = coordKey(r, c);
+        const cm = meta[ck];
+        if (cm && cm.origin) originsToMerge.add(cm.origin);
       }
     }
 
-    const originKey = coordKey(startRow, startCol);
-    
-    // 收集原始内容映射和合并内容
-    const originalContents = {};
+    // Build originalContents mapping: prefer origin.originalContents if available, otherwise fallback to data at origin
+    const originalContentsMap = {};
+    originsToMerge.forEach((originKey) => {
+      const originMeta = meta[originKey] || {};
+      if (originMeta.originalContents) {
+        Object.entries(originMeta.originalContents).forEach(([cellK, content]) => {
+          originalContentsMap[cellK] = content;
+        });
+      } else {
+        if (data[originKey] !== undefined) originalContentsMap[originKey] = data[originKey];
+      }
+    });
+
+    // Collect standalone data cells inside selection (override if necessary)
+    for (let r = startRow; r <= endRow; r++) {
+      for (let c = startCol; c <= endCol; c++) {
+        const k = coordKey(r, c);
+        if (data[k] !== undefined) originalContentsMap[k] = data[k];
+      }
+    }
+
+    // Build merged content in row-major order
     const mergedContentList = [];
     for (let r = startRow; r <= endRow; r++) {
       for (let c = startCol; c <= endCol; c++) {
-        const key = coordKey(r, c);
-        const content = data[key];
-        originalContents[key] = content; // 保存原始位置-内容映射
-        if (content !== undefined) mergedContentList.push(content);
+        const k = coordKey(r, c);
+        if (originalContentsMap[k] !== undefined) mergedContentList.push(originalContentsMap[k]);
       }
     }
 
-    // 更新元数据
+    const newOriginKey = coordKey(startRow, startCol);
+
+    // Update meta: remove merged origins and their covered refs, then set new origin and covered refs
     setMeta((prev) => {
       const next = { ...prev };
-      next[originKey] = { 
-        rowSpan, 
-        colSpan,
-        originalContents // 存储原始内容映射
-      };
-      
-      // 标记被合并单元格的起源
-      for (let r = startRow; r <= endRow; r++) {
-        for (let c = startCol; c <= endCol; c++) {
-          const k = coordKey(r, c);
-          if (k !== originKey) next[k] = { origin: originKey };
+
+      // remove old origins and their covered pointers inside selection
+      originsToMerge.forEach((ok) => {
+        const om = next[ok] || {};
+        const p = parseKey(ok);
+        const or = p.row;
+        const oc = p.col;
+        const ors = om.rowSpan || 1;
+        const ocs = om.colSpan || 1;
+        for (let rr = or; rr < or + ors; rr++) {
+          for (let cc = oc; cc < oc + ocs; cc++) {
+            const covered = coordKey(rr, cc);
+            if (next[covered] && next[covered].origin === ok) delete next[covered];
+          }
+        }
+        delete next[ok];
+      });
+
+      // set new origin with originalContents map for potential split
+      next[newOriginKey] = { rowSpan, colSpan, originalContents: originalContentsMap };
+
+      // mark covered cells
+      for (let rr = startRow; rr <= endRow; rr++) {
+        for (let cc = startCol; cc <= endCol; cc++) {
+          const covered = coordKey(rr, cc);
+          if (covered === newOriginKey) continue;
+          next[covered] = { origin: newOriginKey };
         }
       }
+
       return next;
     });
 
-    // 更新数据：起始单元格整合内容，删除其他单元格数据
+    // Update data: write merged content to the new origin and delete other data in selection
     setData((prev) => {
       const next = { ...prev };
-      next[originKey] = mergedContentList.length > 0 ? (
+      next[newOriginKey] = mergedContentList.length > 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {mergedContentList.map((content, index) => (
-            <div key={index}>{content}</div>
+          {mergedContentList.map((content, idx) => (
+            <div key={idx}>{content}</div>
           ))}
         </div>
       ) : "";
-      
-      // 删除被合并单元格数据
-      for (let r = startRow; r <= endRow; r++) {
-        for (let c = startCol; c <= endCol; c++) {
-          const k = coordKey(r, c);
-          if (k !== originKey) delete next[k];
+
+      for (let rr = startRow; rr <= endRow; rr++) {
+        for (let cc = startCol; cc <= endCol; cc++) {
+          const k = coordKey(rr, cc);
+          if (k !== newOriginKey) delete next[k];
         }
       }
-      
+
       return next;
     });
   }
@@ -230,7 +302,7 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
       toSplit.forEach((entry) => {
         const { key, originalContents } = entry;
         delete next[key]; // 删除合并后的整合内容
-        
+
         // 按原始映射还原内容
         if (originalContents) {
           Object.entries(originalContents).forEach(([cellKey, content]) => {
@@ -272,7 +344,7 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
       if (originRow < at && originRow + rs - 1 >= at) rs += 1;
       const newKey = coordKey(newOriginRow, originCol);
       newMeta[newKey] = { rowSpan: rs, colSpan: cs, originalContents };
-      
+
       const oldDataKey = coordKey(originRow, originCol);
       if (data[oldDataKey] !== undefined) newData[newKey] = data[oldDataKey];
     });
@@ -356,7 +428,7 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
       if (originCol < at && originCol + cs - 1 >= at) cs += 1;
       const newKey = coordKey(originRow, newOriginCol);
       newMeta[newKey] = { rowSpan: rs, colSpan: cs, originalContents };
-      
+
       const oldDataKey = coordKey(originRow, originCol);
       if (data[oldDataKey] !== undefined) newData[newKey] = data[oldDataKey];
     });
@@ -636,6 +708,26 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
         </button>
         <button onClick={splitSelection} style={{ marginRight: 8 }}>
           Split
+        </button>
+        <button
+          onClick={() => {
+            const metaSummary = {};
+            Object.keys(meta).forEach((k) => {
+              const m = meta[k];
+              metaSummary[k] = {
+                origin: m.origin || null,
+                rowSpan: m.rowSpan || null,
+                colSpan: m.colSpan || null,
+                hasOriginalContents: !!m.originalContents,
+              };
+            });
+            const dataKeys = Object.keys(data);
+            console.log({ selection, metaSummary, dataKeys });
+            alert('State dumped to console (open devtools).');
+          }}
+          style={{ marginRight: 8, background: '#fff3bf' }}
+        >
+          Dump state
         </button>
 
         <button onClick={insertRowAbove} style={{ marginRight: 6 }}>
