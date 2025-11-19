@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Input } from 'antd';
-import { Checkbox } from "antd";
-
+import { Input,Checkbox } from 'antd';
+import CanvasItem from "../../demo2/OmniEditor/components/CanvasItem";
+import Tool from "../../demo2/OmniEditor/components/Toolbar/Tool";
 function coordKey(row, col) {
   return `${row},${col}`;
 }
@@ -11,11 +11,16 @@ function parseKey(key) {
   return { row, col };
 }
 
-export default function Spreadsheet({ rows = 12, cols = 8 }) {
+export default function Spreadsheet({ rows = 2, cols = 2 }) {
   const [rowCount, setRowCount] = useState(rows);
   const [colCount, setColCount] = useState(cols);
-
-  const [data, setData] = useState({ "0,0": <Input />, "0,1": <Checkbox /> });
+  const [data, setData] = useState({
+    "0,0": (
+      <Tool id="0,0">
+        <Input />
+      </Tool>
+    ),
+  });
   const [meta, setMeta] = useState({});
 
   const [selection, setSelection] = useState(null);
@@ -162,7 +167,8 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
     for (let r = startRow; r <= endRow; r++) {
       for (let c = startCol; c <= endCol; c++) {
         const k = coordKey(r, c);
-        if (data[k] !== undefined) originalContentsMap[k] = data[k];
+        // only add standalone data cells if we don't already have original content
+        if (data[k] !== undefined && originalContentsMap[k] === undefined) originalContentsMap[k] = data[k];
       }
     }
 
@@ -488,6 +494,20 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
     if (at < 0) at = 0;
     if (at >= rowCount) at = rowCount - 1;
 
+    // If the deleted row intersects any merged origin, block deletion
+    for (const metaKey of Object.keys(meta)) {
+      const entry = meta[metaKey];
+      if (entry && (entry.rowSpan || entry.colSpan)) {
+        const p = parseKey(metaKey);
+        const oR = p.row;
+        const oREnd = oR + (entry.rowSpan || 1) - 1;
+        if (oR <= at && oREnd >= at) {
+          alert('无法删除：所选行包含合并单元格。请先拆分或调整合并区域。');
+          return;
+        }
+      }
+    }
+
     const clearedMeta = { ...meta };
     Object.keys(meta).forEach((metaKey) => {
       const metaEntry = meta[metaKey];
@@ -555,7 +575,21 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
     if (colCount <= 1) return;
     if (at < 0) at = 0;
     if (at >= colCount) at = colCount - 1;
+    // If the deleted column intersects any merged origin, block deletion
+    for (const metaKey of Object.keys(meta)) {
+      const entry = meta[metaKey];
+      if (entry && (entry.rowSpan || entry.colSpan)) {
+        const p = parseKey(metaKey);
+        const oC = p.col;
+        const oCEnd = oC + (entry.colSpan || 1) - 1;
+        if (oC <= at && oCEnd >= at) {
+          alert('无法删除：所选列包含合并单元格。请先拆分或调整合并区域。');
+          return;
+        }
+      }
+    }
 
+    // No intersecting merged origins — perform column removal by shifting columns left
     const clearedMeta = { ...meta };
     Object.keys(meta).forEach((metaKey) => {
       const metaEntry = meta[metaKey];
@@ -563,6 +597,7 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
         const parsed = parseKey(metaKey);
         const cs = metaEntry.colSpan || 1;
         if (parsed.col <= at && parsed.col + cs - 1 >= at) {
+          // should not happen because we blocked intersections, but keep defensive cleanup
           delete clearedMeta[metaKey];
           for (let r2 = parsed.row; r2 < parsed.row + (metaEntry.rowSpan || 1); r2++) {
             for (let c2 = parsed.col; c2 < parsed.col + cs; c2++) {
@@ -577,6 +612,7 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
 
     const newData = {};
     const newMeta = {};
+
     Object.keys(data).forEach((dataKey) => {
       const parsed = parseKey(dataKey);
       const row = parsed.row;
@@ -660,7 +696,7 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
 
     const valueKey = getOriginFor(row, col) || cellKey;
     const value = data[valueKey] || "";
-
+    
     return (
       <td
         key={cellKey}
@@ -679,7 +715,9 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
         }}
       >
         <div style={{ width: "100%", height: "100%", outline: "none" }}>
-          {value}
+          <CanvasItem nodeId={valueKey} data={value}>
+            {value}
+          </CanvasItem>
         </div>
       </td>
     );
@@ -694,7 +732,7 @@ export default function Spreadsheet({ rows = 12, cols = 8 }) {
       if (cell) tds.push(cell);
     }
     rowsElems.push(
-      <tr key={row} style={{ height: 28 }}>
+      <tr key={row} style={{ height: 50 }}>
         {tds}
       </tr>
     );
