@@ -1,4 +1,10 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+} from "react";
 import { Input } from "antd";
 function coordKey(row, col) {
   return `${row},${col}`;
@@ -9,6 +15,57 @@ function parseKey(key) {
   return { row, col };
 }
 
+// memoized Cell component — re-renders only when value/span/selection change
+const Cell = React.memo(
+  function Cell({
+    row,
+    col,
+    spanRow,
+    spanCol,
+    value,
+    isSelected,
+    onMouseDown,
+    onMouseEnter,
+    onClick,
+    onChange,
+  }) {
+    const cellKey = coordKey(row, col);
+    console.log(value, "valuevalue");
+    return (
+      <td
+        key={cellKey}
+        rowSpan={spanRow}
+        colSpan={spanCol}
+        onMouseDown={(e) => onMouseDown && onMouseDown(e, row, col)}
+        onMouseEnter={(e) => onMouseEnter && onMouseEnter(e, row, col)}
+        onClick={(e) => onClick && onClick(e, row, col)}
+        style={{
+          border: "1px solid #ddd",
+          minWidth: 80,
+          height: 28 * spanRow,
+          padding: 4,
+          verticalAlign: "top",
+          background: isSelected ? "#d0e7ff" : "white",
+        }}
+      >
+        <Input
+          value={value}
+          onChange={(e) => onChange(row, col, e.target.value)}
+          bordered={false}
+        />
+      </td>
+    );
+  },
+  (a, b) => {
+    return (
+      a.value === b.value &&
+      a.isSelected === b.isSelected &&
+      a.spanRow === b.spanRow &&
+      a.spanCol === b.spanCol
+    );
+  },
+);
+
 export default function Spreadsheet({ rows = 10, cols = 10 }) {
   const [rowCount, setRowCount] = useState(rows);
   const [colCount, setColCount] = useState(cols);
@@ -17,6 +74,16 @@ export default function Spreadsheet({ rows = 10, cols = 10 }) {
   const [selection, setSelection] = useState(null);
   const selecting = useRef(false);
   const anchor = useRef(null);
+  const metaRef = useRef(meta);
+  const selectionRef = useRef(selection);
+
+  // keep refs up-to-date so stable callbacks can read latest values
+  useEffect(() => {
+    metaRef.current = meta;
+  }, [meta]);
+  useEffect(() => {
+    selectionRef.current = selection;
+  }, [selection]);
 
   function normalizeSel(a, b) {
     const startRow = Math.min(a.row, b.row);
@@ -36,8 +103,8 @@ export default function Spreadsheet({ rows = 10, cols = 10 }) {
     for (let iter = 0; iter < 20; iter++) {
       let expanded = false;
       // scan global meta origins and expand to include any that intersect
-      for (const metaKey of Object.keys(meta)) {
-        const entry = meta[metaKey];
+      for (const metaKey of Object.keys(metaRef.current)) {
+        const entry = metaRef.current[metaKey];
         if (!entry) continue;
         if (!(entry.rowSpan || entry.colSpan)) continue; // only origin entries
         const p = parseKey(metaKey);
@@ -79,28 +146,45 @@ export default function Spreadsheet({ rows = 10, cols = 10 }) {
 
   function getOriginFor(row, col) {
     const cellKey = coordKey(row, col);
-    const cellMeta = meta[cellKey];
+    const cellMeta = metaRef.current[cellKey];
     if (!cellMeta) return null;
     if (cellMeta.origin) return cellMeta.origin;
     return cellKey;
   }
 
-  function onCellMouseDown(e, row, col) {
+  // stable setter for cell value by data key
+  const setCellValue = useCallback((key, value) => {
+    setData((prev) => ({ ...prev, [key]: value }));
+  }, []);
+
+  // stable event handlers (they read refs inside so they stay valid without changing identity)
+  const handleCellMouseDown = useCallback((e, row, col) => {
     selecting.current = true;
     anchor.current = { row, col };
-    // when starting a selection, immediately expand to include any intersecting origins
     const baseSel = { startRow: row, startCol: col, endRow: row, endCol: col };
     const expandedSel = expandSelectionToIncludeOrigins(baseSel);
     setSelection(expandedSel);
-  }
+  }, []);
 
-  function onCellMouseEnter(e, row, col) {
+  const handleCellMouseEnter = useCallback((e, row, col) => {
     if (!selecting.current || !anchor.current) return;
-    // compute tentative selection then expand it to include any intersecting origins
     const tentative = normalizeSel(anchor.current, { row, col });
     const expanded = expandSelectionToIncludeOrigins(tentative);
     setSelection(expanded);
-  }
+  }, []);
+
+  const handleCellClick = useCallback((e, row, col) => {
+    if (e.shiftKey && selectionRef.current) {
+      const start = {
+        row: selectionRef.current.startRow,
+        col: selectionRef.current.startCol,
+      };
+      const sel = normalizeSel(start, { row, col });
+      setSelection(sel);
+    } else {
+      setSelection({ startRow: row, startCol: col, endRow: row, endCol: col });
+    }
+  }, []);
 
   function onMouseUp() {
     selecting.current = false;
@@ -111,16 +195,6 @@ export default function Spreadsheet({ rows = 10, cols = 10 }) {
     window.addEventListener("mouseup", onMouseUp);
     return () => window.removeEventListener("mouseup", onMouseUp);
   }, []);
-
-  function onCellClick(e, row, col) {
-    if (e.shiftKey && selection) {
-      const start = { row: selection.startRow, col: selection.startCol };
-      const sel = normalizeSel(start, { row, col });
-      setSelection(sel);
-    } else {
-      setSelection({ startRow: row, startCol: col, endRow: row, endCol: col });
-    }
-  }
 
   // Merge selection into an origin cell
   function mergeSelection() {
@@ -820,42 +894,27 @@ export default function Spreadsheet({ rows = 10, cols = 10 }) {
     // console.log(data, "datadatadatadata");
     // console.log(valueKey, "valueKeyvalueKeyvalueKey");
     return (
-      <td
+      <Cell
         key={cellKey}
-        rowSpan={spanRow}
-        colSpan={spanCol}
-        onMouseDownCapture={(e) => onCellMouseDown(e, row, col)}
-        onMouseEnter={(e) => onCellMouseEnter(e, row, col)}
-        onClick={(e) => onCellClick(e, row, col)}
-        style={{
-          border: "1px solid #ddd",
-          minWidth: 80,
-          height: 28 * spanRow,
-          padding: 4,
-          verticalAlign: "top",
-          background: isSelected ? "#d0e7ff" : "white",
+        row={row}
+        col={col}
+        spanRow={spanRow}
+        spanCol={spanCol}
+        value={value}
+        isSelected={isSelected}
+        onMouseDown={handleCellMouseDown}
+        onMouseEnter={handleCellMouseEnter}
+        onClick={handleCellClick}
+        onChange={(row, col, newValue) => {
+          const k = getOriginFor(row, col) || coordKey(row, col);
+          setData((data) => {
+            return {
+              ...data,
+              [k]: newValue,
+            };
+          });
         }}
-      >
-        {/*<div style={{ width: "100%", height: "100%", outline: "none" }}>*/}
-        {/*{value}*/}
-        <Input
-          onBlur={(e) => {
-            console.log(e);
-          }}
-          // value={value}
-          onChange={(e) => {
-            const { value } = e.target;
-            setData((data) => {
-              return {
-                ...data,
-                [valueKey]: value,
-              };
-            });
-          }}
-          bordered={false}
-        />
-        {/*</div>*/}
-      </td>
+      />
     );
   }
 
