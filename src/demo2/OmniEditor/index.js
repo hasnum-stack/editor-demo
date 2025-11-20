@@ -24,15 +24,71 @@ import { GlobalType, ToolbarType } from "./utils/enum";
 //
 //   return newArr;
 // };
-const moveBefore = (arr, srcIdx, dstIdx) => {
+
+const isExist = (arr, nodeId) => {
+  const index = arr.findIndex((item) => item.nodeId === nodeId);
+  return index >= 0;
+};
+
+const moveBefore = (arr, moveBox, dstItem) => {
+  if (!arr) return;
+  let srcIdx = moveBox.index;
+  let dstIdx = dstItem.index;
+  if (srcIdx === undefined || srcIdx === null) {
+    srcIdx = dstIdx - 1;
+    arr.splice(srcIdx, 0, moveBox);
+    return;
+  }
   if (srcIdx === dstIdx || srcIdx === dstIdx - 1) return arr;
-
-  const [item] = arr.splice(srcIdx, 1); // 移除要移动的项
-
+  const flag = isExist(arr, moveBox.nodeId);
+  const [item] = flag ? arr.splice(srcIdx, 1) : []; // 移除要移动的项
   const insertIdx = srcIdx < dstIdx ? dstIdx - 1 : dstIdx;
   arr.splice(insertIdx, 0, item); // 插入到目标索引前
+  return ;
+};
 
-  return arr;
+const moveDiffStreetBefore = (moveBox, dstItem) => {
+  // 移除moveBox从原street中
+  const srcStreet = moveBox.street;
+  const srcIdx = moveBox.index;
+  const flag = isExist(srcStreet, moveBox.nodeId);
+  const [item] = flag ? srcStreet.splice(srcIdx, 1) : []; // 移除要移动的项
+  // 插入到目标street中
+  const dstStreet = dstItem.street;
+  const dstIdx = dstItem.index;
+  const insertIdx = dstIdx > 0 ? dstIdx - 1 : 0;
+  dstStreet.splice(insertIdx, 0, item);
+  return;
+};
+
+const moveDiffStreetAfter = (moveBox, dstItem) => {
+  // 移除moveBox从原street中
+  const srcStreet = moveBox.street;
+  const srcIdx = moveBox.index;
+  const flag = isExist(srcStreet, moveBox.nodeId);
+  const [item] = flag ? srcStreet.splice(srcIdx, 1) : []; // 移除要移动的项
+  // 插入到目标street中
+  const dstStreet = dstItem.street;
+  dstStreet.splice(dstItem.index + 1, 0, item);
+  return;
+};
+// Move element at srcIdx to be placed after dstIdx (in-place).
+// No-op when src is the same as dst or already immediately after dst.
+const moveAfter = (arr, moveBox, dstItem) => {
+  if (!arr) return;
+  let srcIdx = moveBox.index;
+  let dstIdx = dstItem.index;
+  if (srcIdx === undefined || srcIdx === null) {
+    srcIdx = dstIdx + 1;
+    arr.splice(srcIdx, 0, moveBox);
+    return;
+  }
+  if (srcIdx === dstIdx || srcIdx === dstIdx + 1) return arr;
+  const flag = isExist(arr, moveBox.nodeId);
+  const [item] = flag ? arr.splice(srcIdx, 1) : []; // 移除要移动的项
+  const insertIdx = srcIdx < dstIdx ? dstIdx : dstIdx + 1;
+  arr.splice(insertIdx, 0, item);
+  return ;
 };
 
 const createBefore = (list, targetIndex) => {
@@ -46,7 +102,7 @@ const getNodeData = (node) => {
   return node?.data?.current || {};
 };
 const getDroppableContainerData = (node) => {
-  return node?.data?.droppableContainer?.data?.current || {};
+  return node?.data?.droppableContainer?.data || {};
 };
 
 const Content = {
@@ -54,13 +110,14 @@ const Content = {
   [ToolbarType.Grid]: Grid,
 };
 
-function Grid({ nodeId, children = [] }) {
+function Grid({ children = [] }) {
   return (
     <>
       <Row>
         {children.map((item, index) => {
-          const { nodeId, Content, type } = item;
-          console.log(type, "typetypetype");
+          
+          const { nodeId, Content, nodeType } = item;
+          console.log(nodeType, "typetypetype");
           // const hint = "top";
           // insertHint?.targetId === id ? insertHint?.position : null;
           return (
@@ -73,7 +130,7 @@ function Grid({ nodeId, children = [] }) {
                   index,
                   nodeId,
                   street: children,
-                  type,
+                  nodeType,
                 }}
                 style={{
                   border: "1px solid",
@@ -82,10 +139,14 @@ function Grid({ nodeId, children = [] }) {
                   borderLeftColor: " #aaa",
                   borderRightColor: "#aaa",
                   borderRadius: 2,
-                  display: type === "input" ? "inline-block" : "block",
+                  display:
+                    nodeType === ToolbarType.Input ? "inline-block" : "block",
+                  height: 100,
                 }}
               >
-                <Content nodeId={nodeId} type={type} />
+                <div style={{ height: 100 }}>
+                  <Content nodeId={nodeId} nodeType={nodeType} />
+                </div>
               </CanvasItem>
             </Col>
           );
@@ -101,9 +162,9 @@ function Input2() {
 const createInputItem = (list) => {
   const length = list.length;
   const id = `node_${nanoid(4)}_${length}`;
-  return {
+  return { 
     nodeId: id,
-    nodeType: "input",
+    nodeType: ToolbarType.Input,
     Content: Input2,
   };
 };
@@ -112,8 +173,8 @@ const createGridItem = (list) => {
   const length = list.length;
   const id = `node_${nanoid(4)}_${length}`;
   return {
-    id,
-    nodeType: "container",
+    nodeId: id,
+    nodeType: ToolbarType.Grid,
     Content: Grid,
   };
 };
@@ -193,35 +254,38 @@ export const customCollisionDetection = (...rest) => {
   return collisions.sort((a, b) => a.data.rect.top - b.data.rect.top);
 };
 
+  
 function OmniEditor() {
   const [list, setList] = useState([
-    // {
-    //   nodeId: "canvas_item_1",
-    //   type: ToolbarType.Grid,
-    //   Content: Grid,
-    //   children: [
-    //     {
-    //       nodeId: "canvas_item_1_1",
-    //       type: ToolbarType.Input,
-    //       Content: Input2,
-    //     },
-    //     {
-    //       nodeId: "canvas_item_1_2",
-    //       type: ToolbarType.Input,
-    //       Content: Input2,
-    //     },
-    //     {
-    //       nodeId: "canvas_item_1_3",
-    //       type: ToolbarType.Input,
-    //       Content: Input2,
-    //     },
-    //   ],
-    // },
+    {
+      nodeId: "canvas_item_1",
+      nodeType: ToolbarType.Grid,
+      Content: Grid,
+      children: [
+        {
+          nodeId: "canvas_item_1_1",
+          nodeType: ToolbarType.Input,
+          Content: Input2,
+        },
+        {
+          nodeId: "canvas_item_1_2",
+          nodeType: ToolbarType.Input,
+          Content: Input2,
+        },
+        {
+          nodeId: "canvas_item_1_3",
+          nodeType: ToolbarType.Input,
+          Content: Input2,
+        },
+      ],
+    },
   ]);
   const setHint = useEditorStore((state) => state.setHint);
   const hint = useEditorStore((state) => state.hint);
   const setOverId = useEditorStore((state) => state.setOverId);
   const overEnd = useEditorStore((state) => state.overEnd);
+  console.log("======list====", list);
+  
   return (
     <DndContext
       // onDragEnd={handleDragEnd}
@@ -303,6 +367,7 @@ function OmniEditor() {
           id={GlobalType.Workspace}
           globalType={GlobalType.Workspace}
           data={{
+            isMainSpace: true,
             street: list,
           }}
         >
@@ -315,7 +380,7 @@ function OmniEditor() {
             }}
           >
             {list.map((item, index) => {
-              const { nodeId, Content, type, children } = item;
+              const { nodeId, Content, nodeType, children } = item;
               // const hint = "top";
               // insertHint?.targetId === id ? insertHint?.position : null;
 
@@ -326,8 +391,8 @@ function OmniEditor() {
                   data={{
                     index,
                     nodeId,
-                    street: children,
-                    type,
+                    street: list,
+                    nodeType,
                     globalType: GlobalType.Node,
                   }}
                   style={{
@@ -337,10 +402,10 @@ function OmniEditor() {
                     borderLeftColor: " #aaa",
                     borderRightColor: "#aaa",
                     borderRadius: 2,
-                    display: type === "input" ? "inline-block" : "block",
+                    display: nodeType === ToolbarType.Input ? "inline-block" : "block",
                   }}
                 >
-                  <Content nodeId={nodeId} type={type}>
+                  <Content nodeId={nodeId} nodeType={nodeType}>
                     {children}
                   </Content>
                 </CanvasItem>
@@ -511,36 +576,70 @@ function OmniEditor() {
     const victor = collisions.find((c) => c.nearestEdge);
     console.log(victor, "victorvictorvictor");
     const {
-      nodeId: victorNodeId,
-      nearestEdge,
-      street: victorStreet,
+      current: { nodeId: victorNodeId, street: victorStreet },
+      current,
     } = getDroppableContainerData(victor) || {};
+    const nearestEdge = victor.nearestEdge;
     console.log(victorNodeId, "victorNodeId");
     console.log(activeNodeId, "activeNodeIdactiveNodeIdactiveNodeId");
     if (victorNodeId && victorNodeId === activeNodeId) {
       //不可以自己去自己内部
       return;
     }
-    let moveBox = null;
+    let moveBox = active.data.current;
     console.log(globalType, "globalTypeglobalType");
     console.log(active, "activeactive");
     if (globalType === GlobalType.Tool) {
       moveBox = create[createType](street);
-      // 从工具栏拖入
-      // 创建新的元素根据type
-      // 放到moveBox中准备移动
-      // const crea;
+    }
+    const insertBefore = nearestEdge === "left" || nearestEdge === "top";
+    // 如果是碰触到最外层容器，前边的话插入到数组最前边
+    if (insertBefore && current.isMainSpace) {
+      if (moveBox.index !== undefined && moveBox.index !== null) {
+        return;
+      }
+      victorStreet.splice(0, 0, moveBox);
+      setList((list) => {
+        return [...list];
+      });
+      return;
+    }
+    // 如果是碰触到最外层容器，后边的话插入到数组最后边
+    if (!insertBefore && current.isMainSpace) {
+      if (moveBox.index !== undefined && moveBox.index !== null) {
+        return;
+      } else {
+        const insertIndex = victorStreet.length > 0 ? victorStreet.length : 0;
+        victorStreet.splice(insertIndex, 0, moveBox);
+      }
+      setList((list) => {
+        return [...list];
+      });
+      return;
+    }
+    if (insertBefore) {
+      if (
+        moveBox.street &&
+        current.street &&
+        moveBox.street !== current.street
+      ) {
+        moveDiffStreetBefore(moveBox, current);
+      } else {
+        moveBefore(victorStreet, moveBox, current);
+      }
     } else {
-      // 把自己从所在街道移除, 然后放到moveBox中准备移动
+      if (
+        moveBox.street &&
+        current.street &&
+        moveBox.street !== current.street
+      ) {
+        moveDiffStreetAfter(moveBox, current);
+      } else {
+        moveAfter(victorStreet, moveBox, current);
+      }
     }
     console.log(moveBox, "moveBoxmoveBox");
 
-    //找到移动过去的街道
-
-    if (victorStreet.length === 0) {
-      //直接放进去
-      victorStreet.push(moveBox);
-    }
     setList((list) => {
       return [...list];
     });
