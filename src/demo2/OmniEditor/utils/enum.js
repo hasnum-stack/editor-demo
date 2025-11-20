@@ -15,4 +15,5 @@ export const GlobalType = {
 export const ToolbarType = {
   Input: "Input",
   Grid: "Grid",
+  Default: "Default",
 };

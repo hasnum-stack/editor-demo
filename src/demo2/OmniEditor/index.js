@@ -12,6 +12,8 @@ import { useEditorStore } from "./store";
 import { nanoid } from "nanoid";
 import { Row, Col, Input } from "antd";
 import { GlobalType, ToolbarType } from "./utils/enum";
+import LayoutGrid from "./components/LayoutGrid";
+import { getDefaultItem } from "./components/LayoutGrid";
 
 // const moveBefore = (arr, srcIdx, dstIdx) => {
 //   if (srcIdx === dstIdx || srcIdx === dstIdx - 1) return arr;
@@ -34,8 +36,9 @@ const moveBefore = (arr, moveBox, dstItem) => {
   if (!arr) return;
   let srcIdx = moveBox.index;
   let dstIdx = dstItem.index;
+
   if (srcIdx === undefined || srcIdx === null) {
-    srcIdx = dstIdx - 1;
+    srcIdx = dstIdx.length > 0 ? dstIdx - 1 : 0;
     arr.splice(srcIdx, 0, moveBox);
     return;
   }
@@ -44,7 +47,7 @@ const moveBefore = (arr, moveBox, dstItem) => {
   const [item] = flag ? arr.splice(srcIdx, 1) : []; // 移除要移动的项
   const insertIdx = srcIdx < dstIdx ? dstIdx - 1 : dstIdx;
   arr.splice(insertIdx, 0, item); // 插入到目标索引前
-  return ;
+  return;
 };
 
 const moveDiffStreetBefore = (moveBox, dstItem) => {
@@ -88,7 +91,7 @@ const moveAfter = (arr, moveBox, dstItem) => {
   const [item] = flag ? arr.splice(srcIdx, 1) : []; // 移除要移动的项
   const insertIdx = srcIdx < dstIdx ? dstIdx : dstIdx + 1;
   arr.splice(insertIdx, 0, item);
-  return ;
+  return;
 };
 
 const createBefore = (list, targetIndex) => {
@@ -115,40 +118,42 @@ function Grid({ children = [] }) {
     <>
       <Row>
         {children.map((item, index) => {
-          
-          const { nodeId, Content, nodeType } = item;
+          const { nodeId, Content, nodeType, isDefault } = item;
           console.log(nodeType, "typetypetype");
           // const hint = "top";
           // insertHint?.targetId === id ? insertHint?.position : null;
           return (
-            <Col>
-              <CanvasItem
-                nodeId={nodeId}
-                key={nodeId}
-                index={index}
-                data={{
-                  index,
-                  nodeId,
-                  street: children,
-                  nodeType,
-                }}
-                style={{
-                  border: "1px solid",
-                  borderTopColor: "#aaa",
-                  borderBottomColor: "#aaa",
-                  borderLeftColor: " #aaa",
-                  borderRightColor: "#aaa",
-                  borderRadius: 2,
-                  display:
-                    nodeType === ToolbarType.Input ? "inline-block" : "block",
-                  height: 100,
-                }}
-              >
-                <div style={{ height: 100 }}>
-                  <Content nodeId={nodeId} nodeType={nodeType} />
-                </div>
-              </CanvasItem>
-            </Col>
+            <div>
+              <Col flex={1} style={{ border: "1px dashed", padding: 6 }}>
+                <CanvasItem
+                  nodeId={nodeId}
+                  key={nodeId}
+                  index={index}
+                  data={{
+                    index,
+                    nodeId,
+                    street: children,
+                    nodeType,
+                    isDefault,
+                  }}
+                  style={{
+                    border: "1px solid",
+                    borderTopColor: "#aaa",
+                    borderBottomColor: "#aaa",
+                    borderLeftColor: " #aaa",
+                    borderRightColor: "#aaa",
+                    borderRadius: 2,
+                    display:
+                      nodeType === ToolbarType.Input ? "inline-block" : "block",
+                    height: 100,
+                  }}
+                >
+                  <div style={{ height: 100 }}>
+                    <Content nodeId={nodeId} nodeType={nodeType} />
+                  </div>
+                </CanvasItem>
+              </Col>
+            </div>
           );
         })}
       </Row>
@@ -158,7 +163,6 @@ function Grid({ children = [] }) {
 function Input2() {
   return <Input placeholder="输入框" />;
 }
-
 const createInputItem = (list) => {
   const length = list.length;
   const id = `node_${nanoid(4)}_${length}`;
@@ -168,6 +172,15 @@ const createInputItem = (list) => {
     Content: Input2,
   };
 };
+const createWorkspaceItem = () => {
+  return {
+    nodeId: `workSpace_node_${nanoid(4)}`,
+    nodeType: GlobalType.Workspace,
+    Content: WorkSpace,
+    isWorkSpace: true,
+    children: [getDefaultItem()],
+  };
+};
 
 const createGridItem = (list) => {
   const length = list.length;
@@ -175,7 +188,22 @@ const createGridItem = (list) => {
   return {
     nodeId: id,
     nodeType: ToolbarType.Grid,
-    Content: Grid,
+    Content: LayoutGrid,
+    onAddColumn: (children) => {
+      const newCol = createWorkspaceItem();
+      children.splice(children.length, 0, newCol);
+    },
+    onDeleteColumn: (colId, children) => {
+      const index = children.findIndex((item) => item.nodeId === colId);
+      if (index >= 0) {
+        children.splice(index, 1);
+      }
+    },
+    children: [
+      createWorkspaceItem(),
+      createWorkspaceItem(),
+      createWorkspaceItem(),
+    ],
   };
 };
 
@@ -257,28 +285,28 @@ export const customCollisionDetection = (...rest) => {
   
 function OmniEditor() {
   const [list, setList] = useState([
-    {
-      nodeId: "canvas_item_1",
-      nodeType: ToolbarType.Grid,
-      Content: Grid,
-      children: [
-        {
-          nodeId: "canvas_item_1_1",
-          nodeType: ToolbarType.Input,
-          Content: Input2,
-        },
-        {
-          nodeId: "canvas_item_1_2",
-          nodeType: ToolbarType.Input,
-          Content: Input2,
-        },
-        {
-          nodeId: "canvas_item_1_3",
-          nodeType: ToolbarType.Input,
-          Content: Input2,
-        },
-      ],
-    },
+    // {
+    //   nodeId: "canvas_item_1",
+    //   nodeType: ToolbarType.Grid,
+    //   Content: Grid,
+    //   children: [
+    //     {
+    //       nodeId: "canvas_item_1_1",
+    //       nodeType: ToolbarType.Input,
+    //       Content: Input2,
+    //     },
+    //     {
+    //       nodeId: "canvas_item_1_2",
+    //       nodeType: ToolbarType.Input,
+    //       Content: Input2,
+    //     },
+    //     {
+    //       nodeId: "canvas_item_1_3",
+    //       nodeType: ToolbarType.Input,
+    //       Content: Input2,
+    //     },
+    //   ],
+    // },
   ]);
   const setHint = useEditorStore((state) => state.setHint);
   const hint = useEditorStore((state) => state.hint);
@@ -367,7 +395,7 @@ function OmniEditor() {
           id={GlobalType.Workspace}
           globalType={GlobalType.Workspace}
           data={{
-            isMainSpace: true,
+            isWorkSpace: true,
             street: list,
           }}
         >
@@ -380,7 +408,7 @@ function OmniEditor() {
             }}
           >
             {list.map((item, index) => {
-              const { nodeId, Content, nodeType, children } = item;
+              const { nodeId, Content, nodeType, children,onAddColumn,onDeleteColumn } = item;
               // const hint = "top";
               // insertHint?.targetId === id ? insertHint?.position : null;
 
@@ -402,10 +430,26 @@ function OmniEditor() {
                     borderLeftColor: " #aaa",
                     borderRightColor: "#aaa",
                     borderRadius: 2,
-                    display: nodeType === ToolbarType.Input ? "inline-block" : "block",
+                    display:
+                      nodeType === ToolbarType.Input ? "inline-block" : "block",
                   }}
                 >
-                  <Content nodeId={nodeId} nodeType={nodeType}>
+                  <Content
+                    nodeId={nodeId}
+                    nodeType={nodeType}
+                    onAddColumn={(children) => {
+                      onAddColumn(children);
+                      setList((list) => {
+                        return [...list];
+                      });
+                    }}
+                    onDeleteColumn={(colId, children) => {
+                      onDeleteColumn(colId, children);
+                      setList((list) => {
+                        return [...list];
+                      });
+                    }}
+                  >
                     {children}
                   </Content>
                 </CanvasItem>
@@ -594,7 +638,7 @@ function OmniEditor() {
     }
     const insertBefore = nearestEdge === "left" || nearestEdge === "top";
     // 如果是碰触到最外层容器，前边的话插入到数组最前边
-    if (insertBefore && current.isMainSpace) {
+    if (insertBefore && current.isWorkSpace) {
       if (moveBox.index !== undefined && moveBox.index !== null) {
         return;
       }
@@ -605,7 +649,7 @@ function OmniEditor() {
       return;
     }
     // 如果是碰触到最外层容器，后边的话插入到数组最后边
-    if (!insertBefore && current.isMainSpace) {
+    if (!insertBefore && current.isWorkSpace) {
       if (moveBox.index !== undefined && moveBox.index !== null) {
         return;
       } else {

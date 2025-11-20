@@ -17,7 +17,7 @@ const borderMap = {
   },
 };
 function CanvasItem(props) {
-  const { nodeId, data, index, style: propsStyle } = props;
+  const { nodeId, data, index, style: propsStyle,disabled } = props;
   const hint = useEditorStore((state) => state.hint);
   const overId = useEditorStore((state) => state.overId);
 
@@ -30,6 +30,7 @@ function CanvasItem(props) {
   const draggable = useDraggable({
     id: nodeId,
     data,
+    disabled
   });
   // console.log(droppable, id, isOver, "droppabledroppabledroppable");
   // console.log(draggable, id, "draggabledraggable");
@@ -91,8 +92,8 @@ function CanvasItem(props) {
         }}
       >
         <div
-          {...draggable.attributes}
-          {...draggable.listeners}
+          {...(!disabled ? (draggable.attributes ?? {}) : {})}
+          {...(!disabled ? (draggable.listeners ?? {}) : {})}
           style={{
             width: "20px",
             height: "20px",
@@ -100,11 +101,12 @@ function CanvasItem(props) {
             top: 0,
             backgroundColor: "gray",
             position: "absolute",
-            cursor: "pointer",
+            cursor: disabled ? "default" : "pointer",
             zIndex: 10,
+            display: disabled ? "none" : "block",
           }}
         >
-          +
+          {!disabled ? "+" : null}
         </div>
         <div>{nodeId}</div>
         {props.children}
