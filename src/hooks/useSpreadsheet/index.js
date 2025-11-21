@@ -3,9 +3,7 @@ import React, {
   useRef,
   useEffect,
   useCallback,
-  useMemo,
 } from "react";
-import { Input } from "antd";
 function coordKey(row, col) {
   return `${row},${col}`;
 }
@@ -15,60 +13,52 @@ function parseKey(key) {
   return { row, col };
 }
 
-// memoized Cell component — re-renders only when value/span/selection change
-const Cell = React.memo(
-  function Cell({
-    row,
-    col,
-    spanRow,
-    spanCol,
-    value,
-    isSelected,
-    onMouseDown,
-    onMouseEnter,
-    onClick,
-    onChange,
-  }) {
-    const cellKey = coordKey(row, col);
-    console.log(value, "valuevalue");
-    return (
-      <td
-        key={cellKey}
-        rowSpan={spanRow}
-        colSpan={spanCol}
-        onMouseDown={(e) => onMouseDown && onMouseDown(e, row, col)}
-        onMouseEnter={(e) => onMouseEnter && onMouseEnter(e, row, col)}
-        onClick={(e) => onClick && onClick(e, row, col)}
-        style={{
-          border: "1px solid #ddd",
-          minWidth: 80,
-          height: 28 * spanRow,
-          padding: 4,
-          verticalAlign: "top",
-          background: isSelected ? "#d0e7ff" : "white",
-        }}
-      >
-        <Input
-          value={value}
-          onChange={(e) => onChange(row, col, e.target.value)}
-          bordered={false}
-        />
-      </td>
-    );
-  },
-  (a, b) => {
-    return (
-      a.value === b.value &&
-      a.isSelected === b.isSelected &&
-      a.spanRow === b.spanRow &&
-      a.spanCol === b.spanCol
-    );
-  },
-);
+// simple Cell component — use a plain function so it always re-renders with latest props
+function Cell({
+  row,
+  col,
+  spanRow,
+  spanCol,
+  value,
+  isSelected,
+  onMouseDown,
+  onMouseEnter,
+  onClick,
+  children,
+}) {
+  const cellKey = coordKey(row, col);
+  return (
+    <td
+      data-value={value}
+      key={cellKey}
+      rowSpan={spanRow}
+      colSpan={spanCol}
+      onMouseDown={(e) => onMouseDown && onMouseDown(e, row, col)}
+      onMouseEnter={(e) => onMouseEnter && onMouseEnter(e, row, col)}
+      onClick={(e) => onClick && onClick(e, row, col)}
+      style={{
+        border: "1px solid #ddd",
+        minWidth: 80,
+        height: 28 * spanRow,
+        padding: 4,
+        verticalAlign: "top",
+        background: isSelected ? "#d0e7ff" : "white",
+      }}
+    >
+      {children}
+    </td>
+  );
+}
 
-export default function useSpreadSheet({ rows = 10, cols = 10 }) {
+function NullComponent() {
+  return null;
+}
+export default function useSpreadSheet({ rows = 10, cols = 10, cellRender }) {
+  const { Component: CellComponent = NullComponent } = cellRender;
   const [rowCount, setRowCount] = useState(rows);
   const [colCount, setColCount] = useState(cols);
+  // bump this to force consumer to remount table body when structural changes occur
+  const [tableVersion, setTableVersion] = useState(0);
   const [data, setData] = useState({});
   const [meta, setMeta] = useState({});
   const [selection, setSelection] = useState(null);
@@ -146,16 +136,12 @@ export default function useSpreadSheet({ rows = 10, cols = 10 }) {
 
   function getOriginFor(row, col) {
     const cellKey = coordKey(row, col);
-    const cellMeta = metaRef.current[cellKey];
+    // read from current meta state (not the ref) so renders immediately after setMeta see updated origins
+    const cellMeta = meta[cellKey];
     if (!cellMeta) return null;
     if (cellMeta.origin) return cellMeta.origin;
     return cellKey;
   }
-
-  // stable setter for cell value by data key
-  const setCellValue = useCallback((key, value) => {
-    setData((prev) => ({ ...prev, [key]: value }));
-  }, []);
 
   // stable event handlers (they read refs inside so they stay valid without changing identity)
   const handleCellMouseDown = useCallback((e, row, col) => {
@@ -372,15 +358,7 @@ export default function useSpreadSheet({ rows = 10, cols = 10 }) {
     setData((prev) => {
       const next = { ...prev };
       next[newOriginKey] =
-        mergedContentList.length > 0 ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {mergedContentList.map((content, idx) => (
-              <div key={idx}>{content}</div>
-            ))}
-          </div>
-        ) : (
-          ""
-        );
+        mergedContentList.length > 0 ? mergedContentList.join() : "";
 
       for (let rr = startRow; rr <= endRow; rr++) {
         for (let cc = startCol; cc <= endCol; cc++) {
@@ -391,6 +369,8 @@ export default function useSpreadSheet({ rows = 10, cols = 10 }) {
 
       return next;
     });
+    // ensure consumer can remount inputs if needed
+    setTableVersion((v) => v + 1);
   }
 
   // 拆分合并单元格：还原原始内容到各自位置
@@ -436,40 +416,42 @@ export default function useSpreadSheet({ rows = 10, cols = 10 }) {
 
     if (toSplit.length === 0) return;
 
-    // 清除合并元数据
-    setMeta((prev) => {
-      const next = { ...prev };
-      toSplit.forEach((entry) => {
-        const { row, col, rowSpan, colSpan, key } = entry;
-        delete next[key];
-        for (let r2 = row; r2 < row + rowSpan; r2++) {
-          for (let c2 = col; c2 < col + colSpan; c2++) {
-            const coveredKey = coordKey(r2, c2);
-            if (next[coveredKey] && next[coveredKey].origin === key) {
-              delete next[coveredKey];
-            }
+    // Compute next meta and next data in local variables, then set both so the UI updates consistently
+    const nextMeta = { ...meta };
+    const nextData = { ...data };
+
+    toSplit.forEach((entry) => {
+      const { row, col, rowSpan, colSpan, key, originalContents } = entry;
+
+      // remove origin meta entry
+      if (nextMeta[key]) delete nextMeta[key];
+
+      // remove covered pointers that reference this origin
+      for (let r2 = row; r2 < row + rowSpan; r2++) {
+        for (let c2 = col; c2 < col + colSpan; c2++) {
+          const coveredKey = coordKey(r2, c2);
+          if (nextMeta[coveredKey] && nextMeta[coveredKey].origin === key) {
+            delete nextMeta[coveredKey];
           }
         }
-      });
-      return next;
+      }
+
+      // restore original contents into data map
+      if (nextData[key] !== undefined) delete nextData[key];
+      if (originalContents) {
+        Object.entries(originalContents).forEach(([cellKey, content]) => {
+          nextData[cellKey] = content;
+        });
+      }
     });
 
-    // 还原原始内容
-    setData((prev) => {
-      const next = { ...prev };
-      toSplit.forEach((entry) => {
-        const { key, originalContents } = entry;
-        delete next[key]; // 删除合并后的整合内容
-
-        // 按原始映射还原内容
-        if (originalContents) {
-          Object.entries(originalContents).forEach(([cellKey, content]) => {
-            next[cellKey] = content;
-          });
-        }
-      });
-      return next;
-    });
+    // apply both updates — React will batch these updates
+    setMeta(() => nextMeta);
+    setData(() => nextData);
+    // force a no-op selection update to ensure a re-render and avoid any intermediate stale visuals
+    setSelection((s) => (s ? { ...s } : s));
+    // bump tableVersion so consumers can remount the table body and guarantee controlled inputs show updated values
+    setTableVersion((v) => v + 1);
   }
 
   // 插入行
@@ -563,13 +545,7 @@ export default function useSpreadSheet({ rows = 10, cols = 10 }) {
     setData(newData);
     setMeta(newMeta);
     setRowCount((prev) => prev + 1);
-
-    if (selection) {
-      const { startRow: sr, endRow: er, startCol, endCol } = selection;
-      const newSr = sr >= at ? sr + 1 : sr;
-      const newEr = er >= at ? er + 1 : er;
-      setSelection({ startRow: newSr, endRow: newEr, startCol, endCol });
-    }
+    setTableVersion((v) => v + 1);
   }
 
   // 插入列
@@ -663,13 +639,7 @@ export default function useSpreadSheet({ rows = 10, cols = 10 }) {
     setData(newData);
     setMeta(newMeta);
     setColCount((prev) => prev + 1);
-
-    if (selection) {
-      const { startRow, endRow, startCol: sc, endCol: ec } = selection;
-      const newSc = sc >= at ? sc + 1 : sc;
-      const newEc = ec >= at ? ec + 1 : ec;
-      setSelection({ startRow, endRow, startCol: newSc, endCol: newEc });
-    }
+    setTableVersion((v) => v + 1);
   }
 
   // 删除行
@@ -749,14 +719,7 @@ export default function useSpreadSheet({ rows = 10, cols = 10 }) {
     setData(newData);
     setMeta(newMeta);
     setRowCount((prev) => prev - 1);
-
-    if (selection) {
-      let { startRow: sr, endRow: er, startCol, endCol } = selection;
-      if (sr > at) sr -= 1;
-      if (er > at) er -= 1;
-      if (sr > er) sr = er;
-      setSelection({ startRow: sr, endRow: er, startCol, endCol });
-    }
+    setTableVersion((v) => v + 1);
   }
 
   // 删除列
@@ -836,14 +799,7 @@ export default function useSpreadSheet({ rows = 10, cols = 10 }) {
     setData(newData);
     setMeta(newMeta);
     setColCount((prev) => prev - 1);
-
-    if (selection) {
-      let { startRow, endRow, startCol: sc, endCol: ec } = selection;
-      if (sc > at) sc -= 1;
-      if (ec > at) ec -= 1;
-      if (sc > ec) sc = ec;
-      setSelection({ startRow, endRow, startCol: sc, endCol: ec });
-    }
+    setTableVersion((v) => v + 1);
   }
 
   // 工具栏辅助函数
@@ -893,6 +849,7 @@ export default function useSpreadSheet({ rows = 10, cols = 10 }) {
     const value = data[valueKey] || "";
     // console.log(data, "datadatadatadata");
     // console.log(valueKey, "valueKeyvalueKeyvalueKey");
+    // const CellComponent = CellComponent;
     return (
       <Cell
         key={cellKey}
@@ -905,16 +862,29 @@ export default function useSpreadSheet({ rows = 10, cols = 10 }) {
         onMouseDown={handleCellMouseDown}
         onMouseEnter={handleCellMouseEnter}
         onClick={handleCellClick}
-        onChange={(row, col, newValue) => {
-          const k = getOriginFor(row, col) || coordKey(row, col);
-          setData((data) => {
-            return {
-              ...data,
-              [k]: newValue,
-            };
-          });
-        }}
-      />
+        // onChange={(row, col, newValue) => {
+        //   const k = getOriginFor(row, col) || coordKey(row, col);
+        //   setData((data) => {
+        //     return {
+        //       ...data,
+        //       [k]: newValue,
+        //     };
+        //   });
+        // }}
+      >
+        <CellComponent
+          value={value}
+          onChange={(value) => {
+            const k = getOriginFor(row, col) || coordKey(row, col);
+            setData((data) => {
+              return {
+                ...data,
+                [k]: value,
+              };
+            });
+          }}
+        />
+      </Cell>
     );
   }
 
@@ -947,5 +917,6 @@ export default function useSpreadSheet({ rows = 10, cols = 10 }) {
     data,
     meta,
     setData,
+    tableVersion,
   };
 }

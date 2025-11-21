@@ -1,6 +1,20 @@
 import React from "react";
 import useSpreadsheet from "../../hooks/useSpreadsheet";
-function Spreadsheet(props) {
+import { Input } from "antd";
+
+// Default cell renderer: uses hook-provided value and setValue to update a single cell
+function DefaultCellRenderer({ value, onChange }) {
+  console.log(value, "value");
+  return (
+    <Input
+      value={value || ""}
+      onChange={(e) => onChange(e.target.value)}
+      bordered={false}
+    />
+  );
+}
+
+function Spreadsheet() {
   const {
     rowsElems,
     mergeSelection,
@@ -14,8 +28,16 @@ function Spreadsheet(props) {
     selection,
     data,
     meta,
-    setData,
-  } = useSpreadsheet({ rows: 10, cols: 10 });
+  } = useSpreadsheet({
+    rows: 10,
+    cols: 20,
+    cellRender: {
+      Component: DefaultCellRenderer,
+    },
+  });
+
+  console.log(data, "data");
+  console.log(meta, "meta");
   return (
     <div>
       <div>
