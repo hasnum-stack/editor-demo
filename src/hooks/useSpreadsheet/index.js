@@ -28,9 +28,10 @@ const Cell = React.memo(
     onMouseEnter,
     onClick,
     onChange,
+    children,
   }) {
     const cellKey = coordKey(row, col);
-    console.log(value, "valuevalue");
+    // console.log(value, "valuevalue");
     return (
       <td
         key={cellKey}
@@ -48,11 +49,12 @@ const Cell = React.memo(
           background: isSelected ? "#d0e7ff" : "white",
         }}
       >
-        <Input
-          value={value}
-          onChange={(e) => onChange(row, col, e.target.value)}
-          bordered={false}
-        />
+        {/*<Input*/}
+        {/*  value={value}*/}
+        {/*  onChange={(e) => onChange(row, col, e.target.value)}*/}
+        {/*  bordered={false}*/}
+        {/*/>*/}
+        {children}
       </td>
     );
   },
@@ -66,7 +68,11 @@ const Cell = React.memo(
   },
 );
 
-export default function useSpreadSheet({ rows = 10, cols = 10 }) {
+function NullComponent() {
+  return null;
+}
+export default function useSpreadSheet({ rows = 10, cols = 10, cellRender }) {
+  const { Component: CellComponent = NullComponent } = cellRender;
   const [rowCount, setRowCount] = useState(rows);
   const [colCount, setColCount] = useState(cols);
   const [data, setData] = useState({});
@@ -893,6 +899,7 @@ export default function useSpreadSheet({ rows = 10, cols = 10 }) {
     const value = data[valueKey] || "";
     // console.log(data, "datadatadatadata");
     // console.log(valueKey, "valueKeyvalueKeyvalueKey");
+    // const CellComponent = CellComponent;
     return (
       <Cell
         key={cellKey}
@@ -914,7 +921,9 @@ export default function useSpreadSheet({ rows = 10, cols = 10 }) {
             };
           });
         }}
-      />
+      >
+        <CellComponent />
+      </Cell>
     );
   }
 

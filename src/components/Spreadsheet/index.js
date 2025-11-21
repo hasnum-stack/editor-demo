@@ -1,5 +1,6 @@
 import React from "react";
 import useSpreadsheet from "../../hooks/useSpreadsheet";
+import { Input } from "antd";
 function Spreadsheet(props) {
   const {
     rowsElems,
@@ -15,7 +16,13 @@ function Spreadsheet(props) {
     data,
     meta,
     setData,
-  } = useSpreadsheet({ rows: 10, cols: 10 });
+  } = useSpreadsheet({
+    rows: 50,
+    cols: 50,
+    cellRender: {
+      // Component: Input,
+    },
+  });
   return (
     <div>
       <div>
