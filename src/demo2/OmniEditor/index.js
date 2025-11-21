@@ -38,7 +38,7 @@ const moveBefore = (arr, moveBox, dstItem) => {
   let dstIdx = dstItem.index;
 
   if (srcIdx === undefined || srcIdx === null) {
-    srcIdx = dstIdx.length > 0 ? dstIdx - 1 : 0;
+    srcIdx = dstIdx?.length > 0 ? dstIdx - 1 : 0;
     arr.splice(srcIdx, 0, moveBox);
     return;
   }
@@ -178,7 +178,7 @@ const createWorkspaceItem = () => {
     nodeType: GlobalType.Workspace,
     Content: WorkSpace,
     isWorkSpace: true,
-    children: [getDefaultItem()],
+    children: [],
   };
 };
 
@@ -430,6 +430,7 @@ function OmniEditor() {
                     borderLeftColor: " #aaa",
                     borderRightColor: "#aaa",
                     borderRadius: 2,
+                    marginBottom: 12,
                     display:
                       nodeType === ToolbarType.Input ? "inline-block" : "block",
                   }}
@@ -637,30 +638,6 @@ function OmniEditor() {
       moveBox = create[createType](street);
     }
     const insertBefore = nearestEdge === "left" || nearestEdge === "top";
-    // 如果是碰触到最外层容器，前边的话插入到数组最前边
-    if (insertBefore && current.isWorkSpace) {
-      if (moveBox.index !== undefined && moveBox.index !== null) {
-        return;
-      }
-      victorStreet.splice(0, 0, moveBox);
-      setList((list) => {
-        return [...list];
-      });
-      return;
-    }
-    // 如果是碰触到最外层容器，后边的话插入到数组最后边
-    if (!insertBefore && current.isWorkSpace) {
-      if (moveBox.index !== undefined && moveBox.index !== null) {
-        return;
-      } else {
-        const insertIndex = victorStreet.length > 0 ? victorStreet.length : 0;
-        victorStreet.splice(insertIndex, 0, moveBox);
-      }
-      setList((list) => {
-        return [...list];
-      });
-      return;
-    }
     if (insertBefore) {
       if (
         moveBox.street &&

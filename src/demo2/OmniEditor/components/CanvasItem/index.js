@@ -20,7 +20,6 @@ function CanvasItem(props) {
   const { nodeId, data, index, style: propsStyle,disabled } = props;
   const hint = useEditorStore((state) => state.hint);
   const overId = useEditorStore((state) => state.overId);
-
   const droppable = useDroppable({
     id: nodeId,
     data,
