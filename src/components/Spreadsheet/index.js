@@ -1,7 +1,11 @@
-import React, { useState, useRef, useEffect } from "react";
-import { Input,Checkbox } from 'antd';
-import CanvasItem from "../../demo2/OmniEditor/components/CanvasItem";
-import Tool from "../../demo2/OmniEditor/components/Toolbar/Tool";
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+} from "react";
+import { Input } from "antd";
 function coordKey(row, col) {
   return `${row},${col}`;
 }
@@ -11,21 +15,75 @@ function parseKey(key) {
   return { row, col };
 }
 
-export default function Spreadsheet({ rows = 2, cols = 2 }) {
+// memoized Cell component — re-renders only when value/span/selection change
+const Cell = React.memo(
+  function Cell({
+    row,
+    col,
+    spanRow,
+    spanCol,
+    value,
+    isSelected,
+    onMouseDown,
+    onMouseEnter,
+    onClick,
+    onChange,
+  }) {
+    const cellKey = coordKey(row, col);
+    console.log(value, "valuevalue");
+    return (
+      <td
+        key={cellKey}
+        rowSpan={spanRow}
+        colSpan={spanCol}
+        onMouseDown={(e) => onMouseDown && onMouseDown(e, row, col)}
+        onMouseEnter={(e) => onMouseEnter && onMouseEnter(e, row, col)}
+        onClick={(e) => onClick && onClick(e, row, col)}
+        style={{
+          border: "1px solid #ddd",
+          minWidth: 80,
+          height: 28 * spanRow,
+          padding: 4,
+          verticalAlign: "top",
+          background: isSelected ? "#d0e7ff" : "white",
+        }}
+      >
+        <Input
+          value={value}
+          onChange={(e) => onChange(row, col, e.target.value)}
+          bordered={false}
+        />
+      </td>
+    );
+  },
+  (a, b) => {
+    return (
+      a.value === b.value &&
+      a.isSelected === b.isSelected &&
+      a.spanRow === b.spanRow &&
+      a.spanCol === b.spanCol
+    );
+  },
+);
+
+export default function Spreadsheet({ rows = 10, cols = 10 }) {
   const [rowCount, setRowCount] = useState(rows);
   const [colCount, setColCount] = useState(cols);
-  const [data, setData] = useState({
-    "0,0": (
-      <Tool id="0,0">
-        <Input />
-      </Tool>
-    ),
-  });
+  const [data, setData] = useState({});
   const [meta, setMeta] = useState({});
-
   const [selection, setSelection] = useState(null);
   const selecting = useRef(false);
   const anchor = useRef(null);
+  const metaRef = useRef(meta);
+  const selectionRef = useRef(selection);
+
+  // keep refs up-to-date so stable callbacks can read latest values
+  useEffect(() => {
+    metaRef.current = meta;
+  }, [meta]);
+  useEffect(() => {
+    selectionRef.current = selection;
+  }, [selection]);
 
   function normalizeSel(a, b) {
     const startRow = Math.min(a.row, b.row);
@@ -35,25 +93,98 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
     return { startRow, startCol, endRow, endCol };
   }
 
+  // Expand a tentative selection so it fully contains any origin rectangles that intersect it.
+  function expandSelectionToIncludeOrigins(tentative) {
+    let { startRow, startCol, endRow, endCol } = tentative;
+    // normalize
+    if (startRow > endRow) [startRow, endRow] = [endRow, startRow];
+    if (startCol > endCol) [startCol, endCol] = [endCol, startCol];
+
+    for (let iter = 0; iter < 20; iter++) {
+      let expanded = false;
+      // scan global meta origins and expand to include any that intersect
+      for (const metaKey of Object.keys(metaRef.current)) {
+        const entry = metaRef.current[metaKey];
+        if (!entry) continue;
+        if (!(entry.rowSpan || entry.colSpan)) continue; // only origin entries
+        const p = parseKey(metaKey);
+        const oR = p.row;
+        const oC = p.col;
+        const oREnd = oR + (entry.rowSpan || 1) - 1;
+        const oCEnd = oC + (entry.colSpan || 1) - 1;
+
+        const intersects = !(
+          oREnd < startRow ||
+          oR > endRow ||
+          oCEnd < startCol ||
+          oC > endCol
+        );
+        if (!intersects) continue;
+
+        if (oR < startRow) {
+          startRow = oR;
+          expanded = true;
+        }
+        if (oC < startCol) {
+          startCol = oC;
+          expanded = true;
+        }
+        if (oREnd > endRow) {
+          endRow = oREnd;
+          expanded = true;
+        }
+        if (oCEnd > endCol) {
+          endCol = oCEnd;
+          expanded = true;
+        }
+      }
+      if (!expanded) break;
+    }
+
+    return { startRow, startCol, endRow, endCol };
+  }
+
   function getOriginFor(row, col) {
     const cellKey = coordKey(row, col);
-    const cellMeta = meta[cellKey];
+    const cellMeta = metaRef.current[cellKey];
     if (!cellMeta) return null;
     if (cellMeta.origin) return cellMeta.origin;
     return cellKey;
   }
 
-  function onCellMouseDown(e, row, col) {
+  // stable setter for cell value by data key
+  const setCellValue = useCallback((key, value) => {
+    setData((prev) => ({ ...prev, [key]: value }));
+  }, []);
+
+  // stable event handlers (they read refs inside so they stay valid without changing identity)
+  const handleCellMouseDown = useCallback((e, row, col) => {
     selecting.current = true;
     anchor.current = { row, col };
-    setSelection({ startRow: row, startCol: col, endRow: row, endCol: col });
-  }
+    const baseSel = { startRow: row, startCol: col, endRow: row, endCol: col };
+    const expandedSel = expandSelectionToIncludeOrigins(baseSel);
+    setSelection(expandedSel);
+  }, []);
 
-  function onCellMouseEnter(e, row, col) {
+  const handleCellMouseEnter = useCallback((e, row, col) => {
     if (!selecting.current || !anchor.current) return;
-    const sel = normalizeSel(anchor.current, { row, col });
-    setSelection(sel);
-  }
+    const tentative = normalizeSel(anchor.current, { row, col });
+    const expanded = expandSelectionToIncludeOrigins(tentative);
+    setSelection(expanded);
+  }, []);
+
+  const handleCellClick = useCallback((e, row, col) => {
+    if (e.shiftKey && selectionRef.current) {
+      const start = {
+        row: selectionRef.current.startRow,
+        col: selectionRef.current.startCol,
+      };
+      const sel = normalizeSel(start, { row, col });
+      setSelection(sel);
+    } else {
+      setSelection({ startRow: row, startCol: col, endRow: row, endCol: col });
+    }
+  }, []);
 
   function onMouseUp() {
     selecting.current = false;
@@ -64,16 +195,6 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
     window.addEventListener("mouseup", onMouseUp);
     return () => window.removeEventListener("mouseup", onMouseUp);
   }, []);
-
-  function onCellClick(e, row, col) {
-    if (e.shiftKey && selection) {
-      const start = { row: selection.startRow, col: selection.startCol };
-      const sel = normalizeSel(start, { row, col });
-      setSelection(sel);
-    } else {
-      setSelection({ startRow: row, startCol: col, endRow: row, endCol: col });
-    }
-  }
 
   // Merge selection into an origin cell
   function mergeSelection() {
@@ -100,14 +221,31 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
         const oCEnd = oC + (entry.colSpan || 1) - 1;
 
         // intersects current selection?
-        const intersects = !(oREnd < startRow || oR > endRow || oCEnd < startCol || oC > endCol);
+        const intersects = !(
+          oREnd < startRow ||
+          oR > endRow ||
+          oCEnd < startCol ||
+          oC > endCol
+        );
         if (!intersects) return;
 
         // expand bounds to fully include the origin rect
-        if (oR < startRow) { startRow = oR; expanded = true; }
-        if (oC < startCol) { startCol = oC; expanded = true; }
-        if (oREnd > endRow) { endRow = oREnd; expanded = true; }
-        if (oCEnd > endCol) { endCol = oCEnd; expanded = true; }
+        if (oR < startRow) {
+          startRow = oR;
+          expanded = true;
+        }
+        if (oC < startCol) {
+          startCol = oC;
+          expanded = true;
+        }
+        if (oREnd > endRow) {
+          endRow = oREnd;
+          expanded = true;
+        }
+        if (oCEnd > endCol) {
+          endCol = oCEnd;
+          expanded = true;
+        }
       });
 
       if (!expanded) break;
@@ -137,7 +275,8 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
       const oC = p.col;
       const oREnd = oR + (entry.rowSpan || 1) - 1;
       const oCEnd = oC + (entry.colSpan || 1) - 1;
-      const fullyInside = oR >= startRow && oREnd <= endRow && oC >= startCol && oCEnd <= endCol;
+      const fullyInside =
+        oR >= startRow && oREnd <= endRow && oC >= startCol && oCEnd <= endCol;
       if (fullyInside) originsToMerge.add(metaKey);
     });
 
@@ -155,11 +294,14 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
     originsToMerge.forEach((originKey) => {
       const originMeta = meta[originKey] || {};
       if (originMeta.originalContents) {
-        Object.entries(originMeta.originalContents).forEach(([cellK, content]) => {
-          originalContentsMap[cellK] = content;
-        });
+        Object.entries(originMeta.originalContents).forEach(
+          ([cellK, content]) => {
+            originalContentsMap[cellK] = content;
+          },
+        );
       } else {
-        if (data[originKey] !== undefined) originalContentsMap[originKey] = data[originKey];
+        if (data[originKey] !== undefined)
+          originalContentsMap[originKey] = data[originKey];
       }
     });
 
@@ -168,7 +310,8 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
       for (let c = startCol; c <= endCol; c++) {
         const k = coordKey(r, c);
         // only add standalone data cells if we don't already have original content
-        if (data[k] !== undefined && originalContentsMap[k] === undefined) originalContentsMap[k] = data[k];
+        if (data[k] !== undefined && originalContentsMap[k] === undefined)
+          originalContentsMap[k] = data[k];
       }
     }
 
@@ -177,7 +320,8 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
     for (let r = startRow; r <= endRow; r++) {
       for (let c = startCol; c <= endCol; c++) {
         const k = coordKey(r, c);
-        if (originalContentsMap[k] !== undefined) mergedContentList.push(originalContentsMap[k]);
+        if (originalContentsMap[k] !== undefined)
+          mergedContentList.push(originalContentsMap[k]);
       }
     }
 
@@ -198,14 +342,19 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
         for (let rr = or; rr < or + ors; rr++) {
           for (let cc = oc; cc < oc + ocs; cc++) {
             const covered = coordKey(rr, cc);
-            if (next[covered] && next[covered].origin === ok) delete next[covered];
+            if (next[covered] && next[covered].origin === ok)
+              delete next[covered];
           }
         }
         delete next[ok];
       });
 
       // set new origin with originalContents map for potential split
-      next[newOriginKey] = { rowSpan, colSpan, originalContents: originalContentsMap };
+      next[newOriginKey] = {
+        rowSpan,
+        colSpan,
+        originalContents: originalContentsMap,
+      };
 
       // mark covered cells
       for (let rr = startRow; rr <= endRow; rr++) {
@@ -222,13 +371,16 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
     // Update data: write merged content to the new origin and delete other data in selection
     setData((prev) => {
       const next = { ...prev };
-      next[newOriginKey] = mergedContentList.length > 0 ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {mergedContentList.map((content, idx) => (
-            <div key={idx}>{content}</div>
-          ))}
-        </div>
-      ) : "";
+      next[newOriginKey] =
+        mergedContentList.length > 0 ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {mergedContentList.map((content, idx) => (
+              <div key={idx}>{content}</div>
+            ))}
+          </div>
+        ) : (
+          ""
+        );
 
       for (let rr = startRow; rr <= endRow; rr++) {
         for (let cc = startCol; cc <= endCol; cc++) {
@@ -258,7 +410,7 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
             key,
             rowSpan: cellMeta.rowSpan,
             colSpan: cellMeta.colSpan,
-            originalContents: cellMeta.originalContents
+            originalContents: cellMeta.originalContents,
           });
         }
       }
@@ -276,7 +428,7 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
             ...parseKey(cellMeta.origin),
             rowSpan: originMeta.rowSpan,
             colSpan: originMeta.colSpan,
-            originalContents: originMeta.originalContents
+            originalContents: originMeta.originalContents,
           });
         }
       }
@@ -345,7 +497,13 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
     });
 
     origins.forEach((origin) => {
-      let { row: originRow, col: originCol, rowSpan: rs, colSpan: cs, originalContents } = origin;
+      let {
+        row: originRow,
+        col: originCol,
+        rowSpan: rs,
+        colSpan: cs,
+        originalContents,
+      } = origin;
       const newOriginRow = originRow >= at ? originRow + 1 : originRow;
       if (originRow < at && originRow + rs - 1 >= at) rs += 1;
       const newKey = coordKey(newOriginRow, originCol);
@@ -358,8 +516,16 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
     Object.keys(newMeta).forEach((originKey) => {
       const originMeta = newMeta[originKey];
       const parsedOrigin = parseKey(originKey);
-      for (let r2 = parsedOrigin.row; r2 < parsedOrigin.row + originMeta.rowSpan; r2++) {
-        for (let c2 = parsedOrigin.col; c2 < parsedOrigin.col + originMeta.colSpan; c2++) {
+      for (
+        let r2 = parsedOrigin.row;
+        r2 < parsedOrigin.row + originMeta.rowSpan;
+        r2++
+      ) {
+        for (
+          let c2 = parsedOrigin.col;
+          c2 < parsedOrigin.col + originMeta.colSpan;
+          c2++
+        ) {
           const coveredKey = coordKey(r2, c2);
           if (r2 === parsedOrigin.row && c2 === parsedOrigin.col) continue;
           newMeta[coveredKey] = { origin: originKey };
@@ -371,7 +537,7 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
       const parsed = parseKey(dataKey);
       const row = parsed.row;
       const col = parsed.col;
-      const isOrigin = origins.some(o => o.row === row && o.col === col);
+      const isOrigin = origins.some((o) => o.row === row && o.col === col);
       if (isOrigin) return;
       const newR = row >= at ? row + 1 : row;
       const newK = coordKey(newR, col);
@@ -385,16 +551,18 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
       const cellMeta = meta[metaKey];
       if (cellMeta && cellMeta.origin) {
         const originParsed = parseKey(cellMeta.origin);
-        const originNewR = originParsed.row >= at ? originParsed.row + 1 : originParsed.row;
+        const originNewR =
+          originParsed.row >= at ? originParsed.row + 1 : originParsed.row;
         const newR = row >= at ? row + 1 : row;
         const newK = coordKey(newR, col);
-        if (!newMeta[newK]) newMeta[newK] = { origin: coordKey(originNewR, originParsed.col) };
+        if (!newMeta[newK])
+          newMeta[newK] = { origin: coordKey(originNewR, originParsed.col) };
       }
     });
 
     setData(newData);
     setMeta(newMeta);
-    setRowCount(prev => prev + 1);
+    setRowCount((prev) => prev + 1);
 
     if (selection) {
       const { startRow: sr, endRow: er, startCol, endCol } = selection;
@@ -429,7 +597,13 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
     });
 
     origins.forEach((origin) => {
-      let { row: originRow, col: originCol, rowSpan: rs, colSpan: cs, originalContents } = origin;
+      let {
+        row: originRow,
+        col: originCol,
+        rowSpan: rs,
+        colSpan: cs,
+        originalContents,
+      } = origin;
       const newOriginCol = originCol >= at ? originCol + 1 : originCol;
       if (originCol < at && originCol + cs - 1 >= at) cs += 1;
       const newKey = coordKey(originRow, newOriginCol);
@@ -442,8 +616,16 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
     Object.keys(newMeta).forEach((originKey) => {
       const originMeta = newMeta[originKey];
       const parsedOrigin = parseKey(originKey);
-      for (let r2 = parsedOrigin.row; r2 < parsedOrigin.row + originMeta.rowSpan; r2++) {
-        for (let c2 = parsedOrigin.col; c2 < parsedOrigin.col + originMeta.colSpan; c2++) {
+      for (
+        let r2 = parsedOrigin.row;
+        r2 < parsedOrigin.row + originMeta.rowSpan;
+        r2++
+      ) {
+        for (
+          let c2 = parsedOrigin.col;
+          c2 < parsedOrigin.col + originMeta.colSpan;
+          c2++
+        ) {
           const coveredKey = coordKey(r2, c2);
           if (r2 === parsedOrigin.row && c2 === parsedOrigin.col) continue;
           newMeta[coveredKey] = { origin: originKey };
@@ -455,7 +637,7 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
       const parsed = parseKey(dataKey);
       const row = parsed.row;
       const col = parsed.col;
-      const isOrigin = origins.some(o => o.row === row && o.col === col);
+      const isOrigin = origins.some((o) => o.row === row && o.col === col);
       if (isOrigin) return;
       const newC = col >= at ? col + 1 : col;
       const newK = coordKey(row, newC);
@@ -469,16 +651,18 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
       const cellMeta = meta[metaKey];
       if (cellMeta && cellMeta.origin) {
         const originParsed = parseKey(cellMeta.origin);
-        const originNewC = originParsed.col >= at ? originParsed.col + 1 : originParsed.col;
+        const originNewC =
+          originParsed.col >= at ? originParsed.col + 1 : originParsed.col;
         const newC = col >= at ? col + 1 : col;
         const newK = coordKey(row, newC);
-        if (!newMeta[newK]) newMeta[newK] = { origin: coordKey(originParsed.row, originNewC) };
+        if (!newMeta[newK])
+          newMeta[newK] = { origin: coordKey(originParsed.row, originNewC) };
       }
     });
 
     setData(newData);
     setMeta(newMeta);
-    setColCount(prev => prev + 1);
+    setColCount((prev) => prev + 1);
 
     if (selection) {
       const { startRow, endRow, startCol: sc, endCol: ec } = selection;
@@ -502,7 +686,7 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
         const oR = p.row;
         const oREnd = oR + (entry.rowSpan || 1) - 1;
         if (oR <= at && oREnd >= at) {
-          alert('无法删除：所选行包含合并单元格。请先拆分或调整合并区域。');
+          alert("无法删除：所选行包含合并单元格。请先拆分或调整合并区域。");
           return;
         }
       }
@@ -517,7 +701,11 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
         if (parsed.row <= at && parsed.row + rs - 1 >= at) {
           delete clearedMeta[metaKey];
           for (let r2 = parsed.row; r2 < parsed.row + rs; r2++) {
-            for (let c2 = parsed.col; c2 < parsed.col + (metaEntry.colSpan || 1); c2++) {
+            for (
+              let c2 = parsed.col;
+              c2 < parsed.col + (metaEntry.colSpan || 1);
+              c2++
+            ) {
               const kk = coordKey(r2, c2);
               if (clearedMeta[kk] && clearedMeta[kk].origin === metaKey)
                 delete clearedMeta[kk];
@@ -552,14 +740,15 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
       const metaEntry = newMeta[metaKey];
       if (metaEntry && metaEntry.origin) {
         const oldOrigin = parseKey(metaEntry.origin);
-        const originNewR = oldOrigin.row > at ? oldOrigin.row - 1 : oldOrigin.row;
+        const originNewR =
+          oldOrigin.row > at ? oldOrigin.row - 1 : oldOrigin.row;
         metaEntry.origin = coordKey(originNewR, oldOrigin.col);
       }
     });
 
     setData(newData);
     setMeta(newMeta);
-    setRowCount(prev => prev - 1);
+    setRowCount((prev) => prev - 1);
 
     if (selection) {
       let { startRow: sr, endRow: er, startCol, endCol } = selection;
@@ -583,7 +772,7 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
         const oC = p.col;
         const oCEnd = oC + (entry.colSpan || 1) - 1;
         if (oC <= at && oCEnd >= at) {
-          alert('无法删除：所选列包含合并单元格。请先拆分或调整合并区域。');
+          alert("无法删除：所选列包含合并单元格。请先拆分或调整合并区域。");
           return;
         }
       }
@@ -599,7 +788,11 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
         if (parsed.col <= at && parsed.col + cs - 1 >= at) {
           // should not happen because we blocked intersections, but keep defensive cleanup
           delete clearedMeta[metaKey];
-          for (let r2 = parsed.row; r2 < parsed.row + (metaEntry.rowSpan || 1); r2++) {
+          for (
+            let r2 = parsed.row;
+            r2 < parsed.row + (metaEntry.rowSpan || 1);
+            r2++
+          ) {
             for (let c2 = parsed.col; c2 < parsed.col + cs; c2++) {
               const kk = coordKey(r2, c2);
               if (clearedMeta[kk] && clearedMeta[kk].origin === metaKey)
@@ -634,14 +827,15 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
       const metaEntry = newMeta[metaKey];
       if (metaEntry && metaEntry.origin) {
         const oldOrigin = parseKey(metaEntry.origin);
-        const originNewC = oldOrigin.col > at ? oldOrigin.col - 1 : oldOrigin.col;
+        const originNewC =
+          oldOrigin.col > at ? oldOrigin.col - 1 : oldOrigin.col;
         metaEntry.origin = coordKey(oldOrigin.row, originNewC);
       }
     });
 
     setData(newData);
     setMeta(newMeta);
-    setColCount(prev => prev - 1);
+    setColCount((prev) => prev - 1);
 
     if (selection) {
       let { startRow, endRow, startCol: sc, endCol: ec } = selection;
@@ -688,7 +882,8 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
     const spanRow = cellMeta?.rowSpan || 1;
     const spanCol = cellMeta?.colSpan || 1;
 
-    const isSelected = selection &&
+    const isSelected =
+      selection &&
       row >= selection.startRow &&
       row <= selection.endRow &&
       col >= selection.startCol &&
@@ -696,30 +891,30 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
 
     const valueKey = getOriginFor(row, col) || cellKey;
     const value = data[valueKey] || "";
-    
+    // console.log(data, "datadatadatadata");
+    // console.log(valueKey, "valueKeyvalueKeyvalueKey");
     return (
-      <td
+      <Cell
         key={cellKey}
-        rowSpan={spanRow}
-        colSpan={spanCol}
-        onMouseDownCapture={(e) => onCellMouseDown(e, row, col)}
-        onMouseEnter={(e) => onCellMouseEnter(e, row, col)}
-        onClick={(e) => onCellClick(e, row, col)}
-        style={{
-          border: "1px solid #ddd",
-          minWidth: 80,
-          height: 28 * spanRow,
-          padding: 4,
-          verticalAlign: "top",
-          background: isSelected ? "#d0e7ff" : "white",
+        row={row}
+        col={col}
+        spanRow={spanRow}
+        spanCol={spanCol}
+        value={value}
+        isSelected={isSelected}
+        onMouseDown={handleCellMouseDown}
+        onMouseEnter={handleCellMouseEnter}
+        onClick={handleCellClick}
+        onChange={(row, col, newValue) => {
+          const k = getOriginFor(row, col) || coordKey(row, col);
+          setData((data) => {
+            return {
+              ...data,
+              [k]: newValue,
+            };
+          });
         }}
-      >
-        <div style={{ width: "100%", height: "100%", outline: "none" }}>
-          <CanvasItem nodeId={valueKey} data={value}>
-            {value}
-          </CanvasItem>
-        </div>
-      </td>
+      />
     );
   }
 
@@ -734,19 +929,15 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
     rowsElems.push(
       <tr key={row} style={{ height: 50 }}>
         {tds}
-      </tr>
+      </tr>,
     );
   }
 
   return (
     <div>
-      <div style={{ marginBottom: 8 }}>
-        <button onClick={mergeSelection} style={{ marginRight: 8 }}>
-          Merge
-        </button>
-        <button onClick={splitSelection} style={{ marginRight: 8 }}>
-          Split
-        </button>
+      <div>
+        <button onClick={mergeSelection}>Merge</button>
+        <button onClick={splitSelection}>Split</button>
         <button
           onClick={() => {
             const metaSummary = {};
@@ -761,34 +952,21 @@ export default function Spreadsheet({ rows = 2, cols = 2 }) {
             });
             const dataKeys = Object.keys(data);
             console.log({ selection, metaSummary, dataKeys });
-            alert('State dumped to console (open devtools).');
+            alert("State dumped to console (open devtools).");
           }}
-          style={{ marginRight: 8, background: '#fff3bf' }}
         >
           Dump state
         </button>
 
-        <button onClick={insertRowAbove} style={{ marginRight: 6 }}>
-          Insert Row Above
-        </button>
-        <button onClick={insertRowBelow} style={{ marginRight: 6 }}>
-          Insert Row Below
-        </button>
-        <button onClick={insertColLeft} style={{ marginRight: 6 }}>
-          Insert Col Left
-        </button>
-        <button onClick={insertColRight} style={{ marginRight: 12 }}>
-          Insert Col Right
-        </button>
+        <button onClick={insertRowAbove}>Insert Row Above</button>
+        <button onClick={insertRowBelow}>Insert Row Below</button>
+        <button onClick={insertColLeft}>Insert Col Left</button>
+        <button onClick={insertColRight}>Insert Col Right</button>
 
-        <button onClick={deleteRowAtSelection} style={{ marginRight: 6 }}>
-          Delete Row
-        </button>
-        <button onClick={deleteColAtSelection} style={{ marginRight: 12 }}>
-          Delete Col
-        </button>
+        <button onClick={deleteRowAtSelection}>Delete Row</button>
+        <button onClick={deleteColAtSelection}>Delete Col</button>
 
-        <span style={{ marginLeft: 12, color: "#666" }}>
+        <span>
           Selection:{" "}
           {selection
             ? `${selection.startRow},${selection.startCol} → ${selection.endRow},${selection.endCol}`
