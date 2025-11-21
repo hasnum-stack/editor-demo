@@ -608,6 +608,13 @@ function OmniEditor() {
     }
   }
 
+ function findOverIsActiveChild(overId, street) {
+  if(overId === undefined || overId === null) return false;
+  return Array.isArray(street) &&
+  street.some(item =>
+    Array.isArray(item.children) && item.children.some(child => child.nodeId === overId)
+  );
+}
   function handleDragEndWithClosestCenter(event) {
     console.log(event);
     const { over, active, collisions } = event;
@@ -627,6 +634,11 @@ function OmniEditor() {
     const nearestEdge = victor.nearestEdge;
     console.log(victorNodeId, "victorNodeId");
     console.log(activeNodeId, "activeNodeIdactiveNodeIdactiveNodeId");
+    // 自己不能放到自己的children内部
+    const isActiveChild = findOverIsActiveChild(victor.id, street);
+    if (isActiveChild) {
+      return;
+    }
     if (victorNodeId && victorNodeId === activeNodeId) {
       //不可以自己去自己内部
       return;
