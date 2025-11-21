@@ -172,7 +172,7 @@ const createInputItem = (list) => {
     Content: Input2,
   };
 };
-const createWorkspaceItem = () => {
+export const createWorkspaceItem = () => {
   return {
     nodeId: `workSpace_node_${nanoid(4)}`,
     nodeType: GlobalType.Workspace,
@@ -189,16 +189,7 @@ const createGridItem = (list) => {
     nodeId: id,
     nodeType: ToolbarType.Grid,
     Content: LayoutGrid,
-    onAddColumn: (children) => {
-      const newCol = createWorkspaceItem();
-      children.splice(children.length, 0, newCol);
-    },
-    onDeleteColumn: (colId, children) => {
-      const index = children.findIndex((item) => item.nodeId === colId);
-      if (index >= 0) {
-        children.splice(index, 1);
-      }
-    },
+   
     children: [
       createWorkspaceItem(),
       createWorkspaceItem(),
@@ -284,7 +275,7 @@ export const customCollisionDetection = (...rest) => {
 
   
 function OmniEditor() {
-  const [list, setList] = useState([
+  // const [list, setList] = useState([
     // {
     //   nodeId: "canvas_item_1",
     //   nodeType: ToolbarType.Grid,
@@ -307,11 +298,13 @@ function OmniEditor() {
     //     },
     //   ],
     // },
-  ]);
+  // ]);
   const setHint = useEditorStore((state) => state.setHint);
   const hint = useEditorStore((state) => state.hint);
   const setOverId = useEditorStore((state) => state.setOverId);
   const overEnd = useEditorStore((state) => state.overEnd);
+  const list = useEditorStore((state) => state.list);  
+  const setList = useEditorStore((state) => state.setList);
   console.log("======list====", list);
   
   return (
@@ -438,21 +431,8 @@ function OmniEditor() {
                   <Content
                     nodeId={nodeId}
                     nodeType={nodeType}
-                    onAddColumn={(children) => {
-                      onAddColumn(children);
-                      setList((list) => {
-                        return [...list];
-                      });
-                    }}
-                    onDeleteColumn={(colId, children) => {
-                      onDeleteColumn(colId, children);
-                      setList((list) => {
-                        return [...list];
-                      });
-                    }}
-                  >
-                    {children}
-                  </Content>
+                    children={children}
+                  />
                 </CanvasItem>
               );
             })}
@@ -672,10 +652,10 @@ function OmniEditor() {
       }
     }
     console.log(moveBox, "moveBoxmoveBox");
-
-    setList((list) => {
-      return [...list];
-    });
+    setList([...list]);
+    // setList((list) => {
+    //   return [...list];
+    // });
 
     //放进去
 
