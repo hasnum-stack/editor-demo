@@ -1,13 +1,15 @@
-import React, { use, useState } from "react";
+import React from "react";
 import { Row, Col, Button } from "antd";
 import CanvasItem from "../CanvasItem";
 import { ToolbarType } from "../../utils/enum";
 import { nanoid } from "nanoid";
-import { GlobalType } from "../../utils/enum";
+import { createWorkspaceItem } from "../../index";
+import { useEditorStore } from "../../store";
 
 const Default = () => {
   return <div>Drop Here</div>;
 };
+
 export const getDefaultItem = () => {
   return {
     nodeId: `default_node_${nanoid(4)}`,
@@ -19,9 +21,22 @@ export const getDefaultItem = () => {
 };
 const LayoutGrid = ({
   children: colChildren,
-  onAddColumn = () => {},
-  onDeleteColumn = () => {},
 }) => {
+  const list = useEditorStore((state) => state.list);
+  const setList = useEditorStore((state) => state.setList);
+  const onAddColumn = (children) => {
+    const newCol = createWorkspaceItem();
+    children.splice(children.length, 0, newCol);
+    setList([...list]);
+  }
+  const onDeleteColumn = (colId, children) => {
+    const index = children.findIndex((item) => item.nodeId === colId);
+    if (index >= 0) {
+      children.splice(index, 1);
+      setList([...list]);
+    }
+  };
+
   return (
     <Row>
       {colChildren.map((col) => {

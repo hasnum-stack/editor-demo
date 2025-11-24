@@ -13,7 +13,7 @@ import { nanoid } from "nanoid";
 import { Row, Col, Input } from "antd";
 import { GlobalType, ToolbarType } from "./utils/enum";
 import LayoutGrid from "./components/LayoutGrid";
-import { getDefaultItem } from "./components/LayoutGrid";
+import LayoutTable from "./components/LayoutTable";
 
 // const moveBefore = (arr, srcIdx, dstIdx) => {
 //   if (srcIdx === dstIdx || srcIdx === dstIdx - 1) return arr;
@@ -172,7 +172,7 @@ const createInputItem = (list) => {
     Content: Input2,
   };
 };
-const createWorkspaceItem = () => {
+export const createWorkspaceItem = () => {
   return {
     nodeId: `workSpace_node_${nanoid(4)}`,
     nodeType: GlobalType.Workspace,
@@ -189,16 +189,6 @@ const createGridItem = (list) => {
     nodeId: id,
     nodeType: ToolbarType.Grid,
     Content: LayoutGrid,
-    onAddColumn: (children) => {
-      const newCol = createWorkspaceItem();
-      children.splice(children.length, 0, newCol);
-    },
-    onDeleteColumn: (colId, children) => {
-      const index = children.findIndex((item) => item.nodeId === colId);
-      if (index >= 0) {
-        children.splice(index, 1);
-      }
-    },
     children: [
       createWorkspaceItem(),
       createWorkspaceItem(),
@@ -207,9 +197,23 @@ const createGridItem = (list) => {
   };
 };
 
+const createTableItem = (list) => {
+  const length = list.length;
+  const id = `node_${nanoid(4)}_${length}`;
+  return {
+    nodeId: id,
+    nodeType: ToolbarType.Table,
+    Content: LayoutTable,
+    children: {
+      '0,0':<div></div>
+    },
+  };
+};
+
 const create = {
   [ToolbarType.Input]: createInputItem,
   [ToolbarType.Grid]: createGridItem,
+  [ToolbarType.Table]: createTableItem,
 };
 const createItemPushLast = (list) => {
   const item = createInputItem(list);
@@ -284,34 +288,36 @@ export const customCollisionDetection = (...rest) => {
 
   
 function OmniEditor() {
-  const [list, setList] = useState([
-    // {
-    //   nodeId: "canvas_item_1",
-    //   nodeType: ToolbarType.Grid,
-    //   Content: Grid,
-    //   children: [
-    //     {
-    //       nodeId: "canvas_item_1_1",
-    //       nodeType: ToolbarType.Input,
-    //       Content: Input2,
-    //     },
-    //     {
-    //       nodeId: "canvas_item_1_2",
-    //       nodeType: ToolbarType.Input,
-    //       Content: Input2,
-    //     },
-    //     {
-    //       nodeId: "canvas_item_1_3",
-    //       nodeType: ToolbarType.Input,
-    //       Content: Input2,
-    //     },
-    //   ],
-    // },
-  ]);
+  // const [list, setList] = useState([
+  //   // {
+  //   //   nodeId: "canvas_item_1",
+  //   //   nodeType: ToolbarType.Grid,
+  //   //   Content: Grid,
+  //   //   children: [
+  //   //     {
+  //   //       nodeId: "canvas_item_1_1",
+  //   //       nodeType: ToolbarType.Input,
+  //   //       Content: Input2,
+  //   //     },
+  //   //     {
+  //   //       nodeId: "canvas_item_1_2",
+  //   //       nodeType: ToolbarType.Input,
+  //   //       Content: Input2,
+  //   //     },
+  //   //     {
+  //   //       nodeId: "canvas_item_1_3",
+  //   //       nodeType: ToolbarType.Input,
+  //   //       Content: Input2,
+  //   //     },
+  //   //   ],
+  //   // },
+  // ]);
   const setHint = useEditorStore((state) => state.setHint);
   const hint = useEditorStore((state) => state.hint);
   const setOverId = useEditorStore((state) => state.setOverId);
   const overEnd = useEditorStore((state) => state.overEnd);
+  const list = useEditorStore((state) => state.list);
+  const setList = useEditorStore((state) => state.setList);
   console.log("======list====", list);
   
   return (
@@ -388,6 +394,17 @@ function OmniEditor() {
           >
             <div>container</div>
           </Tool>
+
+            <Tool
+            id={ToolbarType.Table}
+            data={{
+              id: ToolbarType.Table,
+              globalType: GlobalType.Tool,
+              createType: ToolbarType.Table,
+            }}
+          >
+            <div>table</div>
+          </Tool>
         </div>
 
         {/* 主容器 */}
@@ -438,21 +455,8 @@ function OmniEditor() {
                   <Content
                     nodeId={nodeId}
                     nodeType={nodeType}
-                    onAddColumn={(children) => {
-                      onAddColumn(children);
-                      setList((list) => {
-                        return [...list];
-                      });
-                    }}
-                    onDeleteColumn={(colId, children) => {
-                      onDeleteColumn(colId, children);
-                      setList((list) => {
-                        return [...list];
-                      });
-                    }}
-                  >
-                    {children}
-                  </Content>
+                    children={children}
+                  />
                 </CanvasItem>
               );
             })}
@@ -672,10 +676,10 @@ function OmniEditor() {
       }
     }
     console.log(moveBox, "moveBoxmoveBox");
-
-    setList((list) => {
-      return [...list];
-    });
+    setList([...list]);
+    // setList((list) => {
+    //   return [...list];
+    // });
 
     //放进去
 

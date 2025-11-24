@@ -1,6 +1,10 @@
 import { create } from "zustand";
 const useEditorStore = create((set, getState, store) => {
   return {
+    list: [],
+    setList: (list) => {
+      set({ list });
+    },
     hint: "",
     setHint: (hint) => {
       set({ hint });
