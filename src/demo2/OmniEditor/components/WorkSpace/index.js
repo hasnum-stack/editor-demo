@@ -31,6 +31,7 @@ function WorkSpace(props) {
   const style = {
     // color: isOver ? "green" : undefined,
     // height: "200px",
+    display:'flex',
     border: "1px dashed gray",
     padding: 8,
     ...borderStyle

@@ -39,7 +39,7 @@ function Cell({
       style={{
         border: "1px solid #ddd",
         minWidth: 80,
-        height: 28 * spanRow,
+        minHeight: 56 * spanRow,
         padding: 4,
         verticalAlign: "top",
         background: isSelected ? "#d0e7ff" : "white",

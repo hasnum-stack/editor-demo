@@ -77,12 +77,10 @@ const LayoutGrid = ({
                           nodeType === ToolbarType.Input
                             ? "inline-block"
                             : "block",
-                        height: 100,
+                        height: 200,
                       }}
                     >
-                      <div style={{ height: 100 }}>
                         <Content nodeId={nodeId} nodeType={nodeType} />
-                      </div>
                     </CanvasItem>
                   );
                 })
@@ -100,8 +98,8 @@ const LayoutGrid = ({
               )}
             </Content>
             <Button
-              onClick={() => {
-                onDeleteColumn && onDeleteColumn(nodeId, colChildren);
+              onClick={(e) => {
+                onDeleteColumn(nodeId, colChildren);
               }}
             >
               delWorkspace
@@ -110,7 +108,7 @@ const LayoutGrid = ({
         );
       })}
       <Button
-        onClick={() => {
+        onClick={(e) => {
           onAddColumn(colChildren);
         }}
       >

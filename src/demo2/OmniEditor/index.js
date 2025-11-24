@@ -145,10 +145,9 @@ function Grid({ children = [] }) {
                     borderRadius: 2,
                     display:
                       nodeType === ToolbarType.Input ? "inline-block" : "block",
-                    height: 100,
                   }}
                 >
-                  <div style={{ height: 100 }}>
+                  <div>
                     <Content nodeId={nodeId} nodeType={nodeType} />
                   </div>
                 </CanvasItem>

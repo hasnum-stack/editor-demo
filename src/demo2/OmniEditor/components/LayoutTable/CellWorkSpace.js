@@ -5,8 +5,6 @@ import { ToolbarType } from "../../utils/enum";
 const CellWorkSpace = (props) => {
   const {children, nodeId, nodeType, cellKey, rowCount, colCount } = props;
   const id = `cell_workspace_${nodeId}_${cellKey}`;
-
-  console.log("===CellWorkSpace==cellKey=======", props);
   const getCellPosition = () => {
     for (let r = 0; r < rowCount; r++) {
       for (let c = 0; c < colCount; c++) {
@@ -21,7 +19,6 @@ const CellWorkSpace = (props) => {
   const _children = getCellPosition();
   const cellChildren = _children[cellKey] || [];
   return (
-    <div>
       <WorkSpace
         id={id}
         nodeId={id}
@@ -53,19 +50,20 @@ const CellWorkSpace = (props) => {
                   borderRadius: 2,
                   display:
                     nodeType === ToolbarType.Input ? "inline-block" : "block",
-                  height: 100,
                 }}
               >
-                <div style={{ height: 100 }}>
-                  <Content nodeId={nodeId} nodeType={nodeType} />
-                </div>
+                  <Content
+                    nodeId={nodeId}
+                    nodeType={nodeType}
+                    children={item.children}
+                  />
               </CanvasItem>
             );
           })
         ) : (
           <div
             style={{
-              height: 100,
+              minHeight: 100,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -75,7 +73,6 @@ const CellWorkSpace = (props) => {
           </div>
         )}
       </WorkSpace>
-    </div>
   );
 };
 
