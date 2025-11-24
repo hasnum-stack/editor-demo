@@ -4,16 +4,16 @@ import { useEditorStore } from "../../store";
 
 const borderMap = {
   top: {
-    borderTopColor: " blue",
+    borderTopColor: "red",
   },
   right: {
-    borderRightColor: "blue",
+    borderRightColor: "red",
   },
   bottom: {
-    borderBottomColor: "blue",
+    borderBottomColor: "red",
   },
   left: {
-    borderLeftColor: "blue",
+    borderLeftColor: "red",
   },
 };
 function WorkSpace(props) {
