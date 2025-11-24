@@ -873,6 +873,7 @@ export default function useSpreadSheet({ rows = 10, cols = 10, cellRender }) {
         // }}
       >
         <CellComponent
+          cellKey={cellKey}
           value={value}
           onChange={(value) => {
             const k = getOriginFor(row, col) || coordKey(row, col);
@@ -918,5 +919,7 @@ export default function useSpreadSheet({ rows = 10, cols = 10, cellRender }) {
     meta,
     setData,
     tableVersion,
+    rowCount,
+    colCount,
   };
 }

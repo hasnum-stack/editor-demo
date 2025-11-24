@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import useSpreadsheet from "../../../../hooks/useSpreadsheet";
 import { Input } from "antd";
 import CellWorkSpace from "./CellWorkSpace";
@@ -16,7 +16,6 @@ function DefaultCellRenderer({ value, onChange }) {
 }
 
 const LayoutTable = (props) => {
-    console.log("===LayoutTable=========",props);
   const {
     rowsElems,
     mergeSelection,
@@ -30,14 +29,23 @@ const LayoutTable = (props) => {
     selection,
     data,
     meta,
+    rowCount,
+    colCount,
   } = useSpreadsheet({
     rows: 2,
     cols: 2,
     cellRender: {
-      Component: CellWorkSpace,
+      Component: (cellProps) => (
+        <CellWorkSpace
+          {...props}
+          {...cellProps}
+          rowCount={rowCount}
+          colCount={colCount}
+        />
+      ),
     },
   });
-
+  
   console.log(data, "data");
   console.log(meta, "meta");
   return (

@@ -204,9 +204,7 @@ const createTableItem = (list) => {
     nodeId: id,
     nodeType: ToolbarType.Table,
     Content: LayoutTable,
-    children: {
-      '0,0':<div></div>
-    },
+    children: {},
   };
 };
 
@@ -318,7 +316,7 @@ function OmniEditor() {
   const overEnd = useEditorStore((state) => state.overEnd);
   const list = useEditorStore((state) => state.list);
   const setList = useEditorStore((state) => state.setList);
-  console.log("======list====", list);
+  console.log("======list===dsfsd=", list);
   
   return (
     <DndContext
