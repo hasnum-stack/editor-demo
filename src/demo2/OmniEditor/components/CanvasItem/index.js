@@ -2,6 +2,7 @@ import React from "react";
 import { useDroppable } from "@dnd-kit/core";
 import { useDraggable } from "@dnd-kit/core";
 import { useEditorStore } from "../../store";
+import DRAG_SVG from "../../images/drag.svg";
 const borderMap = {
   top: {
     borderTopColor: " blue",
@@ -31,56 +32,33 @@ function CanvasItem(props) {
     data,
     disabled
   });
-  // console.log(droppable, id, isOver, "droppabledroppabledroppable");
-  // console.log(draggable, id, "draggabledraggable");
-  // const {
-  //   rect: {
-  //     current: { width = 0, height = 0, left, right, top, bottom } = {},
-  //   } = {},
-  // } = droppable;
-
-  // const {
-  //   rect: { current },
-  // } = droppable;
-  // console.log(current, "current");
-  // const {
-  //   width = 0,
-  //   height = 0,
-  //   left = 0,
-  //   right = 0,
-  //   top = 0,
-  //   bottom = 0,
-  // } = current || {};
-  // console.log(width, height, left, right, top, bottom, "pos");
-  //
-  // { attributes, listeners, setNodeRef, transform, ...rest }
-  // console.log(droppable, "droppabledroppabledroppable");
   const ref = (node) => {
     draggable.setNodeRef(node);
     droppable.setNodeRef(node);
   };
-  // console.log(isOver);
-  // console.log(rest, "rest");
+  
   const transformStyle = draggable.transform
     ? {
         // transform: `translate3d(${draggable.transform.x}px, ${draggable.transform.y}px, 0)`,
       }
     : {};
-  // const isOverStyle = isOver ? { borderColor: "blue " } : {};
   const borderStyle = overId === nodeId ? borderMap[hint] : {};
-  // console.log(borderStyle, "borderStyle");
-  //
-  // console.log(transformStyle, "transformStyletransformStyle");
-  const style = {
+  const borderStyles = {
+    border: "1px dashed",
+    borderTopColor: "#aaa",
+    borderBottomColor: "#aaa",
+    borderLeftColor: " #aaa",
+    borderRightColor: "#aaa",
+    borderRadius: 2,
+  };
+  let style = {
     ...transformStyle,
     ...propsStyle,
-    // ...isOverStyle,
+    ...borderStyles,
     ...borderStyle,
-
-    // color: isOver ? "green" : undefined,
-    // height: "200px",
-    // border: "2px dashed gray",
+    padding: 8,
   };
+  
   console.log(hint);
 
   return (
@@ -94,20 +72,21 @@ function CanvasItem(props) {
           {...(!disabled ? (draggable.attributes ?? {}) : {})}
           {...(!disabled ? (draggable.listeners ?? {}) : {})}
           style={{
-            width: "20px",
-            height: "20px",
-            left: 0,
-            top: 0,
-            backgroundColor: "gray",
+            width: "24px",
+            height: "24px",
+            left: -20,
+            top: -20,
             position: "absolute",
             cursor: disabled ? "default" : "pointer",
             zIndex: 10,
             display: disabled ? "none" : "block",
+            background:'#07a6f0',
+            borderRadius:4
           }}
         >
-          {!disabled ? "+" : null}
+          {!disabled ? <img src={DRAG_SVG} /> : null}
         </div>
-        <div>{nodeId}</div>
+        {/* <div>{nodeId}</div> */}
         {props.children}
       </div>
     </div>

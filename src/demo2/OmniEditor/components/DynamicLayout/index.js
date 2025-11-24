@@ -1,13 +1,10 @@
 import React from "react";
-import {
-  DndContext,
-  closestCenter,
-  DragOverlay,
-} from "@dnd-kit/core";
+import { DndContext, closestCenter, DragOverlay } from "@dnd-kit/core";
 import WorkSpace from "../WorkSpace";
 import CanvasItem from "../CanvasItem";
 import { useEditorStore } from "../../store";
 import { GlobalType, ToolbarType } from "../../utils/enum";
+import styles from "./index.module.less";
 const isExist = (arr, nodeId) => {
   const index = arr.findIndex((item) => item.nodeId === nodeId);
   return index >= 0;
@@ -81,7 +78,7 @@ const getDroppableContainerData = (node) => {
 };
 
 // factories moved to ./createDefaults.js
-  
+
 function DynamicLayout({ children, createMap = {} }) {
   // fallbacks to internal store for backwards-compatibility
   const storeSetHint = useEditorStore((state) => state.setHint);
@@ -128,42 +125,19 @@ function DynamicLayout({ children, createMap = {} }) {
         return overList;
       }}
     >
-      <div>
-        {/* 工具栏 - 可通过 props.renderToolbar 覆盖或传入 tools */}
-        <div
-          style={{
-            border: "1px solid #ccc",
-            padding: 8,
-          }}
-        >
-          {children}
-        </div>
-        {/* 主容器 */}
-        <WorkSpace
-          id={GlobalType.Workspace}
-          globalType={GlobalType.Workspace}
-          data={{
-            isWorkSpace: true,
-            street: list,
-          }}
-        >
-          <div
-            style={{
-              border: "2px solid #333",
-              padding: 12,
-              width: "100%",
-              minHeight: 600,
+      <div className={styles.DynamicLayoutWrapper}>
+        <div className={styles.tools}>{children}</div>
+        <div className={styles.WorkSpaceWrapper}>
+          <WorkSpace
+            id={GlobalType.Workspace}
+            globalType={GlobalType.Workspace}
+            data={{
+              isWorkSpace: true,
+              street: list,
             }}
           >
             {list.map((item, index) => {
-              const {
-                nodeId,
-                Content,
-                nodeType,
-                children,
-                onAddColumn,
-                onDeleteColumn,
-              } = item;
+              const { nodeId, Content, nodeType, children } = item;
               // const hint = "top";
               // insertHint?.targetId === id ? insertHint?.position : null;
 
@@ -179,15 +153,7 @@ function DynamicLayout({ children, createMap = {} }) {
                     globalType: GlobalType.Node,
                   }}
                   style={{
-                    border: "1px solid",
-                    borderTopColor: "#aaa",
-                    borderBottomColor: "#aaa",
-                    borderLeftColor: " #aaa",
-                    borderRightColor: "#aaa",
-                    borderRadius: 2,
                     marginBottom: 12,
-                    display:
-                      nodeType === ToolbarType.Input ? "inline-block" : "block",
                   }}
                 >
                   <Content
@@ -198,13 +164,13 @@ function DynamicLayout({ children, createMap = {} }) {
                 </CanvasItem>
               );
             })}
-          </div>
-        </WorkSpace>
-      </div>
+          </WorkSpace>
+        </div>
 
-      <DragOverlay dropAnimation={null}>
-        <button style={{ marginBottom: 16 }}>123123</button>
-      </DragOverlay>
+        <DragOverlay dropAnimation={null}>
+          <button style={{ marginBottom: 16 }}>123123</button>
+        </DragOverlay>
+      </div>
     </DndContext>
   );
   function handleDragMove(event) {
