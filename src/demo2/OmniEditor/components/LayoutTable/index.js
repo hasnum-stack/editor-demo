@@ -1,19 +1,16 @@
 import React, { useState, useEffect } from "react";
+import { Space, Tooltip } from "antd";
 import useSpreadsheet from "../../../../hooks/useSpreadsheet";
-import { Input } from "antd";
 import CellWorkSpace from "./CellWorkSpace";
-
-// Default cell renderer: uses hook-provided value and setValue to update a single cell
-function DefaultCellRenderer({ value, onChange }) {
-  console.log(value, "value");
-  return (
-    <Input
-      value={value || ""}
-      onChange={(e) => onChange(e.target.value)}
-      bordered={false}
-    />
-  );
-}
+import styles from "./index.module.less";
+import MERGE_SVG from "../../images/merge-cells.svg";
+import SPLIT_SVG from "../../images/split-cells.svg";
+import INSERT_ROW_ABOVE from "../../images/insert-row-above.svg";
+import INSERT_ROW_BELOW from "../../images/insert-row-below.svg";
+import INSERT_ROW_LEFT from "../../images/insert-row-left.svg";
+import INSERT_ROW_RIGHT from "../../images/insert-row-right.svg";
+import DELETE_ROW from "../../images/delete-row.svg";
+import DELETE_COL from "../../images/delete-column.svg";
 
 const LayoutTable = (props) => {
   const {
@@ -45,58 +42,43 @@ const LayoutTable = (props) => {
       ),
     },
   });
-  
+
   console.log(data, "data");
   console.log(meta, "meta");
   return (
-    <div>
-      <div>
-        <button onClick={mergeSelection}>Merge</button>
-        <button onClick={splitSelection}>Split</button>
-        <button
-          onClick={() => {
-            const metaSummary = {};
-            Object.keys(meta).forEach((k) => {
-              const m = meta[k];
-              metaSummary[k] = {
-                origin: m.origin || null,
-                rowSpan: m.rowSpan || null,
-                colSpan: m.colSpan || null,
-                hasOriginalContents: !!m.originalContents,
-              };
-            });
-            const dataKeys = Object.keys(data);
-            console.log({ selection, metaSummary, dataKeys });
-            alert("State dumped to console (open devtools).");
-          }}
-        >
-          Dump state
-        </button>
-
-        <button onClick={insertRowAbove}>Insert Row Above</button>
-        <button onClick={insertRowBelow}>Insert Row Below</button>
-        <button onClick={insertColLeft}>Insert Col Left</button>
-        <button onClick={insertColRight}>Insert Col Right</button>
-
-        <button onClick={deleteRowAtSelection}>Delete Row</button>
-        <button onClick={deleteColAtSelection}>Delete Col</button>
-
-        <span>
-          Selection:{" "}
-          {selection
-            ? `${selection.startRow},${selection.startCol} → ${selection.endRow},${selection.endCol}`
-            : "none"}
-        </span>
-      </div>
-
-      <div style={{ overflow: "auto", border: "1px solid #ccc" }}>
+    <div className={styles.layoutTableWrapper}>
+      <div style={{ overflow: "auto" }}>
         <table style={{ borderCollapse: "collapse" }}>
           <tbody>{rowsElems}</tbody>
         </table>
       </div>
-
-      <div style={{ marginTop: 8, color: "#888", fontSize: 12 }}>
-        Tip: 拖拽选择区域，使用工具栏合并/拆分单元格，或插入/删除行列
+      <div className={styles.actionsBtn}>
+        <Space size='middle'>
+          <Tooltip title="合并单元格">
+            <img src={MERGE_SVG} onClick={mergeSelection} />
+          </Tooltip>
+          <Tooltip title="拆分单元格">
+            <img src={SPLIT_SVG} onClick={splitSelection} />
+          </Tooltip>
+          <Tooltip title="上插入行">
+            <img src={INSERT_ROW_ABOVE} onClick={insertRowAbove} />
+          </Tooltip>
+          <Tooltip title="下插入行">
+            <img src={INSERT_ROW_BELOW} onClick={insertRowBelow} />
+          </Tooltip>
+          <Tooltip title="左插入列">
+            <img src={INSERT_ROW_LEFT} onClick={insertColLeft} />
+          </Tooltip>
+          <Tooltip title="右插入列">
+            <img src={INSERT_ROW_RIGHT} onClick={insertColRight} />
+          </Tooltip>
+          <Tooltip title="删除行">
+            <img src={DELETE_ROW} onClick={deleteRowAtSelection} />
+          </Tooltip>
+          <Tooltip title="删除列">
+            <img src={DELETE_COL} onClick={deleteColAtSelection} />
+          </Tooltip>
+        </Space>
       </div>
     </div>
   );
