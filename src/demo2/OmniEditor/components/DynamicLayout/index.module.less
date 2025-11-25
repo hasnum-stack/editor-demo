@@ -1,4 +1,4 @@
-.DynamicLayoutWrapper {
+.dynamicLayoutWrapper {
     display: flex;
     height: 100vh;
     margin: 16px;
@@ -9,11 +9,19 @@
         margin-right: 16px;
     }
 
-    .WorkSpaceWrapper {
-        flex: 1;
-        border: 1px solid rgba(0, 0, 0, 0.25);
+    .dragImg {
+        background: #07a6f0;
+        display: flex;
         border-radius: 4px;
-        width: 100%;
-        padding: 32px;
+        width: 24px;
+        height: 24px;
+        margin-right: 8px;
+        align-items: center;
+        justify-content: center;
+
+        img {
+            width: 14px;
+            height: 14px;
+        }
     }
 }

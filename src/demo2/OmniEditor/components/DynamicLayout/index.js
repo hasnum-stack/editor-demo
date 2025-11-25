@@ -1,10 +1,11 @@
-import React from "react";
+import React, { useState } from "react";
 import { DndContext, closestCenter, DragOverlay } from "@dnd-kit/core";
 import WorkSpace from "../WorkSpace";
 import CanvasItem from "../CanvasItem";
 import { useEditorStore } from "../../store";
-import { GlobalType, ToolbarType } from "../../utils/enum";
+import { GlobalType } from "../../utils/enum";
 import styles from "./index.module.less";
+import DRAG_SVG from "../../images/drag.svg";
 const isExist = (arr, nodeId) => {
   const index = arr.findIndex((item) => item.nodeId === nodeId);
   return index >= 0;
@@ -77,10 +78,7 @@ const getDroppableContainerData = (node) => {
   return node?.data?.droppableContainer?.data || {};
 };
 
-// factories moved to ./createDefaults.js
-
 function DynamicLayout({ children, createMap = {} }) {
-  // fallbacks to internal store for backwards-compatibility
   const storeSetHint = useEditorStore((state) => state.setHint);
   const storeSetOverId = useEditorStore((state) => state.setOverId);
   const list = useEditorStore((state) => state.list);
@@ -125,10 +123,9 @@ function DynamicLayout({ children, createMap = {} }) {
         return overList;
       }}
     >
-      <div className={styles.DynamicLayoutWrapper}>
+      <div className={styles.dynamicLayoutWrapper}>
         <div className={styles.tools}>{children}</div>
-        <div className={styles.WorkSpaceWrapper}>
-          <WorkSpace
+           <WorkSpace
             id={GlobalType.Workspace}
             globalType={GlobalType.Workspace}
             data={{
@@ -165,10 +162,10 @@ function DynamicLayout({ children, createMap = {} }) {
               );
             })}
           </WorkSpace>
-        </div>
-
         <DragOverlay dropAnimation={null}>
-          <button style={{ marginBottom: 16 }}>123123</button>
+          <div className={styles.dragImg}>
+            <img src={DRAG_SVG} />
+          </div>
         </DragOverlay>
       </div>
     </DndContext>

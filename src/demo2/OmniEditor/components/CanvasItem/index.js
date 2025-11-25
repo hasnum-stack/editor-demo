@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import { useDraggable } from "@dnd-kit/core";
 import { useEditorStore } from "../../store";
@@ -18,7 +18,7 @@ const borderMap = {
   },
 };
 function CanvasItem(props) {
-  const { nodeId, data, index, style: propsStyle,disabled } = props;
+  const { nodeId, data, style: propsStyle, disabled } = props;
   const hint = useEditorStore((state) => state.hint);
   const overId = useEditorStore((state) => state.overId);
   const droppable = useDroppable({
@@ -37,7 +37,8 @@ function CanvasItem(props) {
     droppable.setNodeRef(node);
   };
   
-  const transformStyle = draggable.transform
+  const isDragging = !!draggable.isDragging;
+  const transformStyle = draggable.transform && !isDragging
     ? {
         // transform: `translate3d(${draggable.transform.x}px, ${draggable.transform.y}px, 0)`,
       }
@@ -56,13 +57,19 @@ function CanvasItem(props) {
     ...propsStyle,
     ...borderStyles,
     ...borderStyle,
-    padding: 8,
+    padding: 16,
+    opacity: isDragging ? 0.5 : 1,
+    boxShadow: isDragging ? "0 12px 30px rgba(0,0,0,0.18)" : undefined,
   };
-  
-  console.log(hint);
+  const [hovered, setHovered] = useState(false);
 
   return (
-    <div ref={ref} style={style}>
+    <div
+      ref={ref}
+      style={style}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       <div
         style={{
           position: "relative",
@@ -71,20 +78,32 @@ function CanvasItem(props) {
         <div
           {...(!disabled ? (draggable.attributes ?? {}) : {})}
           {...(!disabled ? (draggable.listeners ?? {}) : {})}
+          role="button"
+          aria-label="Drag handle"
+          tabIndex={disabled ? -1 : 0}
           style={{
-            width: "24px",
-            height: "24px",
-            left: -20,
-            top: -20,
+            width: 24,
+            height: 24,
+            left: -24,
+            top: -24,
             position: "absolute",
-            cursor: disabled ? "default" : "pointer",
+            cursor: disabled ? "default" : isDragging ? "grabbing" : "grab",
             zIndex: 10,
-            display: disabled ? "none" : "block",
-            background:'#07a6f0',
-            borderRadius:4
+            // opacity: disabled ? 0 : hovered ? 1 : 0.25,
+            transition: "opacity 120ms ease, transform 120ms ease",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background: "#07a6f0",
+            borderRadius: 4,
+            boxShadow: isDragging ? "0 6px 18px rgba(0,0,0,0.18)" : "0 2px 6px rgba(0,0,0,0.12)",
+            pointerEvents: disabled ? "none" : "auto",
+            transform: isDragging ? "scale(1.02)" : "none",
           }}
         >
-          {!disabled ? <img src={DRAG_SVG} /> : null}
+          {!disabled ? (
+            <img src={DRAG_SVG} alt="drag" style={{ width: 14, height: 14, pointerEvents: "none" }} />
+          ) : null}
         </div>
         {/* <div>{nodeId}</div> */}
         {props.children}

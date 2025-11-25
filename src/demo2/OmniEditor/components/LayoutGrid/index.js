@@ -1,27 +1,16 @@
-import React from "react";
+import React, { useState } from "react";
 import { Row, Col, Button } from "antd";
+import { DeleteOutlined } from "@ant-design/icons";
 import CanvasItem from "../CanvasItem";
-import { ToolbarType } from "../../utils/enum";
-import { nanoid } from "nanoid";
 import { createWorkspaceItem } from "../../index";
 import { useEditorStore } from "../../store";
+import ADD_SVG from "../../images/add.svg";
+import styles from './index.module.less'
 
-const Default = () => {
-  return <div>Drop Here</div>;
-};
-
-export const getDefaultItem = () => {
-  return {
-    nodeId: `default_node_${nanoid(4)}`,
-    nodeType: ToolbarType.Default,
-    Content: Default,
-    isDefault: true,
-    disabled: true,
-  };
-};
 const LayoutGrid = ({
   children: colChildren,
 }) => {
+  const [selectedCol, setSelectedCol] = useState({});
   const list = useEditorStore((state) => state.list);
   const setList = useEditorStore((state) => state.setList);
   const onAddColumn = (children) => {
@@ -38,16 +27,25 @@ const LayoutGrid = ({
   };
 
   return (
-    <Row>
+    <Row className={styles.layoutGridWrapper} gutter={[4, 4]}>
       {colChildren.map((col) => {
         const { children, Content, nodeId, nodeType } = col;
+        const selected = selectedCol.nodeId == nodeId;
         return (
-          <Col span={6}>
+          <Col
+            key={nodeId}
+            span={8}
+            className={styles.colWrapper}
+            onClick={() => {
+              setSelectedCol(col);
+            }}
+          >
             <Content
               id={nodeId}
               nodeId={nodeId}
               nodeType={nodeType}
               data={{ isWorkSpace: true, street: children }}
+              selected={selected}
             >
               {children.length > 0 ? (
                 children.map((item, index) => {
@@ -66,21 +64,8 @@ const LayoutGrid = ({
                         nodeType,
                         isDefault,
                       }}
-                      style={{
-                        border: "1px solid",
-                        borderTopColor: "#aaa",
-                        borderBottomColor: "#aaa",
-                        borderLeftColor: " #aaa",
-                        borderRightColor: "#aaa",
-                        borderRadius: 2,
-                        display:
-                          nodeType === ToolbarType.Input
-                            ? "inline-block"
-                            : "block",
-                        height: 200,
-                      }}
                     >
-                        <Content nodeId={nodeId} nodeType={nodeType} />
+                      <Content nodeId={nodeId} nodeType={nodeType} />
                     </CanvasItem>
                   );
                 })
@@ -97,23 +82,24 @@ const LayoutGrid = ({
                 </div>
               )}
             </Content>
-            <Button
+            <DeleteOutlined
+              style={selected ? { display: "flex" } : { display: "none" }}
+              className={styles.delCol}
               onClick={(e) => {
                 onDeleteColumn(nodeId, colChildren);
               }}
-            >
-              delWorkspace
-            </Button>
+            />
           </Col>
         );
       })}
-      <Button
-        onClick={(e) => {
-          onAddColumn(colChildren);
-        }}
-      >
-        add
-      </Button>
+      <div className={styles.rowActionsBtn}>
+        <img
+          src={ADD_SVG}
+          onClick={() => {
+            onAddColumn(colChildren);
+          }}
+        />
+      </div>
     </Row>
   );
 };
