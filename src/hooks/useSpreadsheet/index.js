@@ -3,7 +3,12 @@ import React, {
   useRef,
   useEffect,
   useCallback,
+  useReducer,
+  useMemo,
 } from "react";
+
+import { spreadsheetReducer, createInitialSpreadsheetState } from './reducer';
+
 function coordKey(row, col) {
   return `${row},${col}`;
 }
@@ -25,8 +30,10 @@ function Cell({
   onMouseEnter,
   onClick,
   children,
+  bgColor,
 }) {
   const cellKey = coordKey(row, col);
+
   return (
     <td
       data-value={value}
@@ -39,10 +46,10 @@ function Cell({
       style={{
         border: "1px solid #ddd",
         minWidth: 80,
-        minHeight: 56 * spanRow,
+        minHeight: 31 * spanRow,
         padding: 4,
-        verticalAlign: "top",
-        background: isSelected ? "#d0e7ff" : "white",
+        verticalAlign: "middle",
+        background: isSelected ? "#d0e7ff" : (bgColor || "#fff"),
       }}
     >
       {children}
@@ -53,27 +60,95 @@ function Cell({
 function NullComponent() {
   return null;
 }
-export default function useSpreadSheet({ rows = 10, cols = 10, cellRender }) {
+const initializeState = ({ initialRows, initialCols, initialValue }) => {
+  // 如果有受控的初始值，直接用它
+  if (initialValue) {
+    return {
+      rows: initialValue.rows || initialRows,
+      cols: initialValue.cols || initialCols,
+      data: initialValue.data || {},
+      meta: initialValue.meta || {},
+    };
+  }
+  // 否则，用 props 里的 rows 和 cols 创建一个空表
+  return {
+    rows: initialRows,
+    cols: initialCols,
+    data: {},
+    meta: {},
+  };
+};
+export default function useSpreadSheet({
+  rows = 2,
+  cols = 2,
+  cellRender = {},
+  bgColor,
+  // 受控模式的 props
+  value: controlledValue,
+  onChange,
+}) {
   const { Component: CellComponent = NullComponent } = cellRender;
-  const [rowCount, setRowCount] = useState(rows);
-  const [colCount, setColCount] = useState(cols);
+
+  // ==================== 核心状态管理 (统一到 useReducer) ====================
+
+  // 1. 使用 useReducer，并提供一个完整的初始状态，包含 rows 和 cols
+  const [internalState, dispatch] = useReducer(
+    spreadsheetReducer,
+    {
+      initialRows: rows,
+      initialCols: cols,
+      initialValue: controlledValue,
+    },
+    initializeState // 这是初始化函数
+  );
+
+  // 2. 判断逻辑保持不变
+  const state = controlledValue !== undefined ? controlledValue : internalState;
+  const isControlled = controlledValue !== undefined;
+
+  // 3. 解构逻辑保持不变
+  const { data, meta, rows: currentRows, cols: currentCols } = state;
+
   // bump this to force consumer to remount table body when structural changes occur
   const [tableVersion, setTableVersion] = useState(0);
-  const [data, setData] = useState({});
-  const [meta, setMeta] = useState({});
   const [selection, setSelection] = useState(null);
   const selecting = useRef(false);
   const anchor = useRef(null);
+
+  // 为了在回调中能访问到最新的值，使用 ref
   const metaRef = useRef(meta);
   const selectionRef = useRef(selection);
-
-  // keep refs up-to-date so stable callbacks can read latest values
   useEffect(() => {
     metaRef.current = meta;
   }, [meta]);
   useEffect(() => {
     selectionRef.current = selection;
   }, [selection]);
+
+  const wrappedDispatch = useCallback((action) => {
+    // 在 action 的 payload 里附加上当前最新的 state，供 reducer 使用
+    const actionWithState = {
+      ...action,
+      payload: {
+        ...action.payload,
+        data: state.data,
+        meta: state.meta,
+      },
+    };
+
+    if (isControlled && onChange) {
+      // 受控模式：计算出 newState，然后调用 onChange
+      const newState = spreadsheetReducer(state, actionWithState);
+      onChange(newState);
+    } else {
+      // 非受控模式：直接 dispatch
+      dispatch(actionWithState);
+    }
+  }, [isControlled, onChange, state]);
+
+  const setData = useCallback((updater) => {
+    wrappedDispatch({ type: 'SET_DATA', payload: { updater } });
+  }, [wrappedDispatch]);
 
   function normalizeSel(a, b) {
     const startRow = Math.min(a.row, b.row);
@@ -145,6 +220,7 @@ export default function useSpreadSheet({ rows = 10, cols = 10, cellRender }) {
 
   // stable event handlers (they read refs inside so they stay valid without changing identity)
   const handleCellMouseDown = useCallback((e, row, col) => {
+    e.stopPropagation();
     selecting.current = true;
     anchor.current = { row, col };
     const baseSel = { startRow: row, startCol: col, endRow: row, endCol: col };
@@ -184,622 +260,62 @@ export default function useSpreadSheet({ rows = 10, cols = 10, cellRender }) {
 
   // Merge selection into an origin cell
   function mergeSelection() {
-    if (!selection) return;
-
-    // start from current selection
-    let { startRow, startCol, endRow, endCol } = selection;
-    const initial = { startRow, startCol, endRow, endCol };
-
-    // Iteratively expand selection to fully include any origin that intersects it.
-    for (let iter = 0; iter < 20; iter++) {
-      let expanded = false;
-
-      // scan all origin entries in meta (entries with rowSpan/colSpan)
-      Object.keys(meta).forEach((metaKey) => {
-        const entry = meta[metaKey];
-        if (!entry) return;
-        if (!(entry.rowSpan || entry.colSpan)) return; // not an origin
-
-        const p = parseKey(metaKey);
-        const oR = p.row;
-        const oC = p.col;
-        const oREnd = oR + (entry.rowSpan || 1) - 1;
-        const oCEnd = oC + (entry.colSpan || 1) - 1;
-
-        // intersects current selection?
-        const intersects = !(
-          oREnd < startRow ||
-          oR > endRow ||
-          oCEnd < startCol ||
-          oC > endCol
-        );
-        if (!intersects) return;
-
-        // expand bounds to fully include the origin rect
-        if (oR < startRow) {
-          startRow = oR;
-          expanded = true;
-        }
-        if (oC < startCol) {
-          startCol = oC;
-          expanded = true;
-        }
-        if (oREnd > endRow) {
-          endRow = oREnd;
-          expanded = true;
-        }
-        if (oCEnd > endCol) {
-          endCol = oCEnd;
-          expanded = true;
-        }
-      });
-
-      if (!expanded) break;
-    }
-
-    // If selection expanded, update visible selection so user sees it
-    if (
-      startRow !== initial.startRow ||
-      startCol !== initial.startCol ||
-      endRow !== initial.endRow ||
-      endCol !== initial.endCol
-    ) {
-      setSelection({ startRow, startCol, endRow, endCol });
-    }
-
-    const rowSpan = endRow - startRow + 1;
-    const colSpan = endCol - startCol + 1;
-    if (rowSpan === 1 && colSpan === 1) return;
-
-    // Collect all origin keys whose origin rectangles are fully inside the (possibly expanded) selection
-    const originsToMerge = new Set();
-    Object.keys(meta).forEach((metaKey) => {
-      const entry = meta[metaKey];
-      if (!entry || !(entry.rowSpan || entry.colSpan)) return;
-      const p = parseKey(metaKey);
-      const oR = p.row;
-      const oC = p.col;
-      const oREnd = oR + (entry.rowSpan || 1) - 1;
-      const oCEnd = oC + (entry.colSpan || 1) - 1;
-      const fullyInside =
-        oR >= startRow && oREnd <= endRow && oC >= startCol && oCEnd <= endCol;
-      if (fullyInside) originsToMerge.add(metaKey);
+    wrappedDispatch({
+      type: 'MERGE_SELECTION',
+      payload: {
+        selection,
+        // 把 reducer 需要的辅助函数也传过去
+        parseKey,
+        coordKey,
+      },
     });
-
-    // Also include any origins referenced by covered cells inside the selection (defensive)
-    for (let r = startRow; r <= endRow; r++) {
-      for (let c = startCol; c <= endCol; c++) {
-        const ck = coordKey(r, c);
-        const cm = meta[ck];
-        if (cm && cm.origin) originsToMerge.add(cm.origin);
-      }
-    }
-
-    // Build originalContents mapping: prefer origin.originalContents if available, otherwise fallback to data at origin
-    const originalContentsMap = {};
-    originsToMerge.forEach((originKey) => {
-      const originMeta = meta[originKey] || {};
-      if (originMeta.originalContents) {
-        Object.entries(originMeta.originalContents).forEach(
-          ([cellK, content]) => {
-            originalContentsMap[cellK] = content;
-          },
-        );
-      } else {
-        if (data[originKey] !== undefined)
-          originalContentsMap[originKey] = data[originKey];
-      }
-    });
-
-    // Collect standalone data cells inside selection (override if necessary)
-    for (let r = startRow; r <= endRow; r++) {
-      for (let c = startCol; c <= endCol; c++) {
-        const k = coordKey(r, c);
-        // only add standalone data cells if we don't already have original content
-        if (data[k] !== undefined && originalContentsMap[k] === undefined)
-          originalContentsMap[k] = data[k];
-      }
-    }
-
-    // Build merged content in row-major order
-    const mergedContentList = [];
-    for (let r = startRow; r <= endRow; r++) {
-      for (let c = startCol; c <= endCol; c++) {
-        const k = coordKey(r, c);
-        if (originalContentsMap[k] !== undefined)
-          mergedContentList.push(originalContentsMap[k]);
-      }
-    }
-
-    const newOriginKey = coordKey(startRow, startCol);
-
-    // Update meta: remove merged origins and their covered refs, then set new origin and covered refs
-    setMeta((prev) => {
-      const next = { ...prev };
-
-      // remove old origins and their covered pointers inside selection
-      originsToMerge.forEach((ok) => {
-        const om = next[ok] || {};
-        const p = parseKey(ok);
-        const or = p.row;
-        const oc = p.col;
-        const ors = om.rowSpan || 1;
-        const ocs = om.colSpan || 1;
-        for (let rr = or; rr < or + ors; rr++) {
-          for (let cc = oc; cc < oc + ocs; cc++) {
-            const covered = coordKey(rr, cc);
-            if (next[covered] && next[covered].origin === ok)
-              delete next[covered];
-          }
-        }
-        delete next[ok];
-      });
-
-      // set new origin with originalContents map for potential split
-      next[newOriginKey] = {
-        rowSpan,
-        colSpan,
-        originalContents: originalContentsMap,
-      };
-
-      // mark covered cells
-      for (let rr = startRow; rr <= endRow; rr++) {
-        for (let cc = startCol; cc <= endCol; cc++) {
-          const covered = coordKey(rr, cc);
-          if (covered === newOriginKey) continue;
-          next[covered] = { origin: newOriginKey };
-        }
-      }
-
-      return next;
-    });
-
-    // Update data: write merged content to the new origin and delete other data in selection
-    setData((prev) => {
-      const next = { ...prev };
-      next[newOriginKey] =
-        mergedContentList.length > 0 ? mergedContentList.join() : "";
-
-      for (let rr = startRow; rr <= endRow; rr++) {
-        for (let cc = startCol; cc <= endCol; cc++) {
-          const k = coordKey(rr, cc);
-          if (k !== newOriginKey) delete next[k];
-        }
-      }
-
-      return next;
-    });
-    // ensure consumer can remount inputs if needed
+    // 确保消费者可以重新挂载输入
     setTableVersion((v) => v + 1);
   }
 
   // 拆分合并单元格：还原原始内容到各自位置
   function splitSelection() {
-    if (!selection) return;
-    const { startRow, startCol, endRow, endCol } = selection;
-    const toSplit = [];
-
-    // 找到需要拆分的合并单元格
-    for (let r = startRow; r <= endRow; r++) {
-      for (let c = startCol; c <= endCol; c++) {
-        const key = coordKey(r, c);
-        const cellMeta = meta[key];
-        if (cellMeta && (cellMeta.rowSpan || cellMeta.colSpan)) {
-          toSplit.push({
-            ...parseKey(key),
-            key,
-            rowSpan: cellMeta.rowSpan,
-            colSpan: cellMeta.colSpan,
-            originalContents: cellMeta.originalContents,
-          });
-        }
-      }
-    }
-
-    // 处理单个单元格属于合并区域的情况
-    if (toSplit.length === 0 && startRow === endRow && startCol === endCol) {
-      const key = coordKey(startRow, startCol);
-      const cellMeta = meta[key];
-      if (cellMeta && cellMeta.origin) {
-        const originMeta = meta[cellMeta.origin];
-        if (originMeta && (originMeta.rowSpan || originMeta.colSpan)) {
-          toSplit.push({
-            key: cellMeta.origin,
-            ...parseKey(cellMeta.origin),
-            rowSpan: originMeta.rowSpan,
-            colSpan: originMeta.colSpan,
-            originalContents: originMeta.originalContents,
-          });
-        }
-      }
-    }
-
-    if (toSplit.length === 0) return;
-
-    // Compute next meta and next data in local variables, then set both so the UI updates consistently
-    const nextMeta = { ...meta };
-    const nextData = { ...data };
-
-    toSplit.forEach((entry) => {
-      const { row, col, rowSpan, colSpan, key, originalContents } = entry;
-
-      // remove origin meta entry
-      if (nextMeta[key]) delete nextMeta[key];
-
-      // remove covered pointers that reference this origin
-      for (let r2 = row; r2 < row + rowSpan; r2++) {
-        for (let c2 = col; c2 < col + colSpan; c2++) {
-          const coveredKey = coordKey(r2, c2);
-          if (nextMeta[coveredKey] && nextMeta[coveredKey].origin === key) {
-            delete nextMeta[coveredKey];
-          }
-        }
-      }
-
-      // restore original contents into data map
-      if (nextData[key] !== undefined) delete nextData[key];
-      if (originalContents) {
-        Object.entries(originalContents).forEach(([cellKey, content]) => {
-          nextData[cellKey] = content;
-        });
-      }
+    wrappedDispatch({
+      type: 'SPLIT_SELECTION',
+      payload: {
+        selection,
+        // 把 reducer 需要的辅助函数和当前状态传过去
+        parseKey,
+        coordKey,
+      },
     });
 
-    // apply both updates — React will batch these updates
-    setMeta(() => nextMeta);
-    setData(() => nextData);
-    // force a no-op selection update to ensure a re-render and avoid any intermediate stale visuals
+    // 这些 side effect 仍然保留在 hook 里
+    // force a no-op selection update to ensure a re-render
     setSelection((s) => (s ? { ...s } : s));
-    // bump tableVersion so consumers can remount the table body and guarantee controlled inputs show updated values
+    // bump tableVersion so consumers can remount the table body
     setTableVersion((v) => v + 1);
   }
 
   // 插入行
-  function insertRow(at) {
-    if (at < 0) at = 0;
-    if (at > rowCount) at = rowCount;
-
-    const newData = {};
-    const newMeta = {};
-
-    const origins = [];
-    Object.keys(meta).forEach((metaKey) => {
-      const entry = meta[metaKey];
-      const parsed = parseKey(metaKey);
-      if (entry && (entry.rowSpan || entry.colSpan)) {
-        origins.push({
-          row: parsed.row,
-          col: parsed.col,
-          rowSpan: entry.rowSpan || 1,
-          colSpan: entry.colSpan || 1,
-          originalContents: entry.originalContents,
-          key: metaKey,
-        });
-      }
+  const insertRow = useCallback((at) => {
+    wrappedDispatch({
+      type: 'INSERT_ROW',
+      payload: { at },
     });
-
-    origins.forEach((origin) => {
-      let {
-        row: originRow,
-        col: originCol,
-        rowSpan: rs,
-        colSpan: cs,
-        originalContents,
-      } = origin;
-      const newOriginRow = originRow >= at ? originRow + 1 : originRow;
-      if (originRow < at && originRow + rs - 1 >= at) rs += 1;
-      const newKey = coordKey(newOriginRow, originCol);
-      newMeta[newKey] = { rowSpan: rs, colSpan: cs, originalContents };
-
-      const oldDataKey = coordKey(originRow, originCol);
-      if (data[oldDataKey] !== undefined) newData[newKey] = data[oldDataKey];
-    });
-
-    Object.keys(newMeta).forEach((originKey) => {
-      const originMeta = newMeta[originKey];
-      const parsedOrigin = parseKey(originKey);
-      for (
-        let r2 = parsedOrigin.row;
-        r2 < parsedOrigin.row + originMeta.rowSpan;
-        r2++
-      ) {
-        for (
-          let c2 = parsedOrigin.col;
-          c2 < parsedOrigin.col + originMeta.colSpan;
-          c2++
-        ) {
-          const coveredKey = coordKey(r2, c2);
-          if (r2 === parsedOrigin.row && c2 === parsedOrigin.col) continue;
-          newMeta[coveredKey] = { origin: originKey };
-        }
-      }
-    });
-
-    Object.keys(data).forEach((dataKey) => {
-      const parsed = parseKey(dataKey);
-      const row = parsed.row;
-      const col = parsed.col;
-      const isOrigin = origins.some((o) => o.row === row && o.col === col);
-      if (isOrigin) return;
-      const newR = row >= at ? row + 1 : row;
-      const newK = coordKey(newR, col);
-      if (newData[newK] === undefined) newData[newK] = data[dataKey];
-    });
-
-    Object.keys(meta).forEach((metaKey) => {
-      const parsed = parseKey(metaKey);
-      const row = parsed.row;
-      const col = parsed.col;
-      const cellMeta = meta[metaKey];
-      if (cellMeta && cellMeta.origin) {
-        const originParsed = parseKey(cellMeta.origin);
-        const originNewR =
-          originParsed.row >= at ? originParsed.row + 1 : originParsed.row;
-        const newR = row >= at ? row + 1 : row;
-        const newK = coordKey(newR, col);
-        if (!newMeta[newK])
-          newMeta[newK] = { origin: coordKey(originNewR, originParsed.col) };
-      }
-    });
-
-    setData(newData);
-    setMeta(newMeta);
-    setRowCount((prev) => prev + 1);
-    setTableVersion((v) => v + 1);
-  }
+  }, [wrappedDispatch]);
 
   // 插入列
-  function insertCol(at) {
-    if (at < 0) at = 0;
-    if (at > colCount) at = colCount;
-
-    const newData = {};
-    const newMeta = {};
-
-    const origins = [];
-    Object.keys(meta).forEach((metaKey) => {
-      const entry = meta[metaKey];
-      const parsed = parseKey(metaKey);
-      if (entry && (entry.rowSpan || entry.colSpan)) {
-        origins.push({
-          row: parsed.row,
-          col: parsed.col,
-          rowSpan: entry.rowSpan || 1,
-          colSpan: entry.colSpan || 1,
-          originalContents: entry.originalContents,
-          key: metaKey,
-        });
-      }
+  const insertCol = useCallback((at) => {
+    wrappedDispatch({
+      type: 'INSERT_COL',
+      payload: { at },
     });
-
-    origins.forEach((origin) => {
-      let {
-        row: originRow,
-        col: originCol,
-        rowSpan: rs,
-        colSpan: cs,
-        originalContents,
-      } = origin;
-      const newOriginCol = originCol >= at ? originCol + 1 : originCol;
-      if (originCol < at && originCol + cs - 1 >= at) cs += 1;
-      const newKey = coordKey(originRow, newOriginCol);
-      newMeta[newKey] = { rowSpan: rs, colSpan: cs, originalContents };
-
-      const oldDataKey = coordKey(originRow, originCol);
-      if (data[oldDataKey] !== undefined) newData[newKey] = data[oldDataKey];
-    });
-
-    Object.keys(newMeta).forEach((originKey) => {
-      const originMeta = newMeta[originKey];
-      const parsedOrigin = parseKey(originKey);
-      for (
-        let r2 = parsedOrigin.row;
-        r2 < parsedOrigin.row + originMeta.rowSpan;
-        r2++
-      ) {
-        for (
-          let c2 = parsedOrigin.col;
-          c2 < parsedOrigin.col + originMeta.colSpan;
-          c2++
-        ) {
-          const coveredKey = coordKey(r2, c2);
-          if (r2 === parsedOrigin.row && c2 === parsedOrigin.col) continue;
-          newMeta[coveredKey] = { origin: originKey };
-        }
-      }
-    });
-
-    Object.keys(data).forEach((dataKey) => {
-      const parsed = parseKey(dataKey);
-      const row = parsed.row;
-      const col = parsed.col;
-      const isOrigin = origins.some((o) => o.row === row && o.col === col);
-      if (isOrigin) return;
-      const newC = col >= at ? col + 1 : col;
-      const newK = coordKey(row, newC);
-      if (newData[newK] === undefined) newData[newK] = data[dataKey];
-    });
-
-    Object.keys(meta).forEach((metaKey) => {
-      const parsed = parseKey(metaKey);
-      const row = parsed.row;
-      const col = parsed.col;
-      const cellMeta = meta[metaKey];
-      if (cellMeta && cellMeta.origin) {
-        const originParsed = parseKey(cellMeta.origin);
-        const originNewC =
-          originParsed.col >= at ? originParsed.col + 1 : originParsed.col;
-        const newC = col >= at ? col + 1 : col;
-        const newK = coordKey(row, newC);
-        if (!newMeta[newK])
-          newMeta[newK] = { origin: coordKey(originParsed.row, originNewC) };
-      }
-    });
-
-    setData(newData);
-    setMeta(newMeta);
-    setColCount((prev) => prev + 1);
-    setTableVersion((v) => v + 1);
-  }
+  }, [wrappedDispatch]);
 
   // 删除行
   function deleteRow(at) {
-    if (rowCount <= 1) return;
-    if (at < 0) at = 0;
-    if (at >= rowCount) at = rowCount - 1;
 
-    // If the deleted row intersects any merged origin, block deletion
-    for (const metaKey of Object.keys(meta)) {
-      const entry = meta[metaKey];
-      if (entry && (entry.rowSpan || entry.colSpan)) {
-        const p = parseKey(metaKey);
-        const oR = p.row;
-        const oREnd = oR + (entry.rowSpan || 1) - 1;
-        if (oR <= at && oREnd >= at) {
-          alert("无法删除：所选行包含合并单元格。请先拆分或调整合并区域。");
-          return;
-        }
-      }
-    }
-
-    const clearedMeta = { ...meta };
-    Object.keys(meta).forEach((metaKey) => {
-      const metaEntry = meta[metaKey];
-      if (metaEntry && (metaEntry.rowSpan || metaEntry.colSpan)) {
-        const parsed = parseKey(metaKey);
-        const rs = metaEntry.rowSpan || 1;
-        if (parsed.row <= at && parsed.row + rs - 1 >= at) {
-          delete clearedMeta[metaKey];
-          for (let r2 = parsed.row; r2 < parsed.row + rs; r2++) {
-            for (
-              let c2 = parsed.col;
-              c2 < parsed.col + (metaEntry.colSpan || 1);
-              c2++
-            ) {
-              const kk = coordKey(r2, c2);
-              if (clearedMeta[kk] && clearedMeta[kk].origin === metaKey)
-                delete clearedMeta[kk];
-            }
-          }
-        }
-      }
-    });
-
-    const newData = {};
-    const newMeta = {};
-
-    Object.keys(data).forEach((dataKey) => {
-      const parsed = parseKey(dataKey);
-      const row = parsed.row;
-      const col = parsed.col;
-      if (row === at) return;
-      const nr = row > at ? row - 1 : row;
-      newData[coordKey(nr, col)] = data[dataKey];
-    });
-
-    Object.keys(clearedMeta).forEach((metaKey) => {
-      const parsed = parseKey(metaKey);
-      const row = parsed.row;
-      const col = parsed.col;
-      if (row === at) return;
-      const nr = row > at ? row - 1 : row;
-      newMeta[coordKey(nr, col)] = { ...clearedMeta[metaKey] };
-    });
-
-    Object.keys(newMeta).forEach((metaKey) => {
-      const metaEntry = newMeta[metaKey];
-      if (metaEntry && metaEntry.origin) {
-        const oldOrigin = parseKey(metaEntry.origin);
-        const originNewR =
-          oldOrigin.row > at ? oldOrigin.row - 1 : oldOrigin.row;
-        metaEntry.origin = coordKey(originNewR, oldOrigin.col);
-      }
-    });
-
-    setData(newData);
-    setMeta(newMeta);
-    setRowCount((prev) => prev - 1);
-    setTableVersion((v) => v + 1);
   }
 
   // 删除列
   function deleteCol(at) {
-    if (colCount <= 1) return;
-    if (at < 0) at = 0;
-    if (at >= colCount) at = colCount - 1;
-    // If the deleted column intersects any merged origin, block deletion
-    for (const metaKey of Object.keys(meta)) {
-      const entry = meta[metaKey];
-      if (entry && (entry.rowSpan || entry.colSpan)) {
-        const p = parseKey(metaKey);
-        const oC = p.col;
-        const oCEnd = oC + (entry.colSpan || 1) - 1;
-        if (oC <= at && oCEnd >= at) {
-          alert("无法删除：所选列包含合并单元格。请先拆分或调整合并区域。");
-          return;
-        }
-      }
-    }
 
-    // No intersecting merged origins — perform column removal by shifting columns left
-    const clearedMeta = { ...meta };
-    Object.keys(meta).forEach((metaKey) => {
-      const metaEntry = meta[metaKey];
-      if (metaEntry && (metaEntry.rowSpan || metaEntry.colSpan)) {
-        const parsed = parseKey(metaKey);
-        const cs = metaEntry.colSpan || 1;
-        if (parsed.col <= at && parsed.col + cs - 1 >= at) {
-          // should not happen because we blocked intersections, but keep defensive cleanup
-          delete clearedMeta[metaKey];
-          for (
-            let r2 = parsed.row;
-            r2 < parsed.row + (metaEntry.rowSpan || 1);
-            r2++
-          ) {
-            for (let c2 = parsed.col; c2 < parsed.col + cs; c2++) {
-              const kk = coordKey(r2, c2);
-              if (clearedMeta[kk] && clearedMeta[kk].origin === metaKey)
-                delete clearedMeta[kk];
-            }
-          }
-        }
-      }
-    });
-
-    const newData = {};
-    const newMeta = {};
-
-    Object.keys(data).forEach((dataKey) => {
-      const parsed = parseKey(dataKey);
-      const row = parsed.row;
-      const col = parsed.col;
-      if (col === at) return;
-      const nc = col > at ? col - 1 : col;
-      newData[coordKey(row, nc)] = data[dataKey];
-    });
-    Object.keys(clearedMeta).forEach((metaKey) => {
-      const parsed = parseKey(metaKey);
-      const row = parsed.row;
-      const col = parsed.col;
-      if (col === at) return;
-      const nc = col > at ? col - 1 : col;
-      newMeta[coordKey(row, nc)] = { ...clearedMeta[metaKey] };
-    });
-
-    Object.keys(newMeta).forEach((metaKey) => {
-      const metaEntry = newMeta[metaKey];
-      if (metaEntry && metaEntry.origin) {
-        const oldOrigin = parseKey(metaEntry.origin);
-        const originNewC =
-          oldOrigin.col > at ? oldOrigin.col - 1 : oldOrigin.col;
-        metaEntry.origin = coordKey(oldOrigin.row, originNewC);
-      }
-    });
-
-    setData(newData);
-    setMeta(newMeta);
-    setColCount((prev) => prev - 1);
-    setTableVersion((v) => v + 1);
   }
 
   // 工具栏辅助函数
@@ -812,26 +328,67 @@ export default function useSpreadSheet({ rows = 10, cols = 10, cellRender }) {
     deleteCol(selection.startCol);
   }
 
+  // 绝对顶部加一行
+  function insertRowTop() {
+    insertRow(0);
+    setTableVersion((v) => v + 1);
+  }
+
+  // 当前位置往上加
   function insertRowAbove() {
     if (!selection) return;
     insertRow(selection.startRow);
+    setTableVersion((v) => v + 1);
   }
+
   function insertRowBelow() {
     if (!selection) return;
     insertRow(selection.endRow + 1);
+    setTableVersion((v) => v + 1);
   }
+
   function insertColLeft() {
     if (!selection) return;
     insertCol(selection.startCol);
+    setTableVersion((v) => v + 1);
   }
+
+  // 最右侧添加一列
+  function insertColEnd() {
+    insertCol(currentCols + 1);
+    setTableVersion((v) => v + 1);
+  }
+  
   function insertColRight() {
     if (!selection) return;
     insertCol(selection.endCol + 1);
+    setTableVersion((v) => v + 1);
+  }
+
+  // 【新】删除当前行 (基于选区的起始行)
+  function deleteCurrentRow() {
+    if (!selection) return;
+    wrappedDispatch({
+      type: 'DELETE_ROWS',
+      payload: { startRow: selection.startRow, endRow: selection.startRow },
+    });
+    setTableVersion((v) => v + 1);
+  }
+
+  // 【新】删除当前列 (基于选区的起始列)
+  function deleteCurrentCol() {
+    if (!selection) return;
+    wrappedDispatch({
+      type: 'DELETE_COLS',
+      payload: { startCol: selection.startCol, endCol: selection.startCol },
+    });
+    setTableVersion((v) => v + 1);
   }
 
   // 渲染单元格
   function renderCell(row, col) {
     const cellKey = coordKey(row, col);
+
     const cellMeta = meta[cellKey];
     if (cellMeta && cellMeta.origin) return null;
 
@@ -847,9 +404,6 @@ export default function useSpreadSheet({ rows = 10, cols = 10, cellRender }) {
 
     const valueKey = getOriginFor(row, col) || cellKey;
     const value = data[valueKey] || "";
-    // console.log(data, "datadatadatadata");
-    // console.log(valueKey, "valueKeyvalueKeyvalueKey");
-    // const CellComponent = CellComponent;
     return (
       <Cell
         key={cellKey}
@@ -862,15 +416,7 @@ export default function useSpreadSheet({ rows = 10, cols = 10, cellRender }) {
         onMouseDown={handleCellMouseDown}
         onMouseEnter={handleCellMouseEnter}
         onClick={handleCellClick}
-        // onChange={(row, col, newValue) => {
-        //   const k = getOriginFor(row, col) || coordKey(row, col);
-        //   setData((data) => {
-        //     return {
-        //       ...data,
-        //       [k]: newValue,
-        //     };
-        //   });
-        // }}
+        bgColor={bgColor}
       >
         <CellComponent
           cellKey={cellKey}
@@ -890,36 +436,42 @@ export default function useSpreadSheet({ rows = 10, cols = 10, cellRender }) {
   }
 
   // 构建表格行
-  const rowsElems = [];
-  for (let row = 0; row < rowCount; row++) {
-    const tds = [];
-    for (let col = 0; col < colCount; col++) {
-      const cell = renderCell(row, col);
-      if (cell) tds.push(cell);
+  const rowsElems = useMemo(() => {
+    const elems = [];
+    for (let row = 0; row < currentRows; row++) {
+      const tds = [];
+      for (let col = 0; col < currentCols; col++) {
+        const cell = renderCell(row, col);
+        if (cell) tds.push(cell);
+      }
+      elems.push(
+        <tr key={row} style={{ height: 31 }}>
+          {tds}
+        </tr>,
+      );
     }
-    rowsElems.push(
-      <tr key={row} style={{ height: 50 }}>
-        {tds}
-      </tr>,
-    );
-  }
+    return elems;
+  }, [currentRows, currentCols, renderCell]);
 
   return {
     rowsElems,
     mergeSelection,
     splitSelection,
+    insertRowTop,
     insertRowAbove,
     insertRowBelow,
     insertColLeft,
+    insertColEnd,
     insertColRight,
     deleteRowAtSelection,
     deleteColAtSelection,
     selection,
     data,
     meta,
-    setData,
     tableVersion,
-    rowCount,
-    colCount,
+    rows: currentRows,
+    cols: currentCols,
+    deleteCurrentRow,
+    deleteCurrentCol,
   };
 }

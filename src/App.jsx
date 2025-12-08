@@ -8,8 +8,8 @@ import OmniEditor2 from "./demo2/OmniEditor/index02";
 export default function App() {
   return (
     <div className="app">
-      <OmniEditor2 />
-      {/* <Spreadsheet /> */}
+      {/* <OmniEditor2 /> */}
+      <Spreadsheet />
       {/* <h2>Form Editor Demo (minimal)</h2> */}
       {/* <Editor /> */}
       {/*<Basic />*/}
